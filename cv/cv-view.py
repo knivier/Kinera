@@ -7,7 +7,14 @@ import argparse
 import cv2
 import numpy as np
 
-from cv import PoseCore, build_text_panel, draw_skeleton, flip_landmarks_x, install_ctrl_c
+from cv import (
+    PoseCore,
+    build_text_panel,
+    draw_skeleton,
+    flip_landmarks_x,
+    install_ctrl_c,
+    ELBOW_ALERT_RED_ALPHA,
+)
 
 
 def run_view(camera_id=0, width=1920, height=1200):
@@ -42,6 +49,9 @@ def run_view(camera_id=0, width=1920, height=1200):
             frame = cv2.flip(frame, 1)  # mirror view so it looks natural to the user
             lm_mirrored = flip_landmarks_x(data["landmarks"])  # align skeleton with mirrored frame
             draw_skeleton(frame, lm_mirrored, data["connection_spec"])
+            if data.get("alert_red"):
+                red = np.full_like(frame, (0, 0, 255))
+                frame = cv2.addWeighted(frame, 1.0 - ELBOW_ALERT_RED_ALPHA, red, ELBOW_ALERT_RED_ALPHA, 0)
 
             cam_display = cv2.resize(frame, (width, WIN_HEIGHT))
             text_panel = build_text_panel(data["text_lines"], width=TEXT_PANEL_WIDTH, height=WIN_HEIGHT)

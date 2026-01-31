@@ -30,11 +30,21 @@ smoothing_alpha: 0.4
 arm_angle_offset: -10
 
 # Elbow angle source/mode:
-#   3d  = world landmarks only
-#   2d  = image-plane only
-#   avg = average of 2d and 3d
-#   max = take the larger (helps full extension read closer to 180)
+#   3d        = world landmarks only
+#   2d        = image-plane only
+#   avg       = average of 2d and 3d
+#   max       = take the larger (helps full extension read closer to 180)
+#   auto      = use 3d when arm points toward/away from camera, else 2d
+#   extension = use shoulder↔wrist distance ratio (full extension => 180)
 elbow_angle_mode: max
+
+# Auto mode depth threshold (world z distance in meters). Higher = more 2d, lower = more 3d.
+elbow_auto_depth_m: 0.15
+
+# Elbow alert: when elbow angle is near this (± tolerance), tint camera red.
+elbow_alert_angle: 90
+elbow_alert_tolerance: 10
+elbow_alert_red_alpha: 0.35
 
 # Angle ranges [min, max] in degrees per joint. Limb drawn green when in range, red otherwise.
 # Affects UI and form checks.

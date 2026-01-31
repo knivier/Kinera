@@ -72,6 +72,10 @@ _DEFAULT_CONFIG = {
     "smoothing_alpha": 0.4,
     "arm_angle_offset": 0,
     "elbow_angle_mode": "max",
+    "elbow_auto_depth_m": 0.15,
+    "elbow_alert_angle": 90,
+    "elbow_alert_tolerance": 5,
+    "elbow_alert_red_alpha": 0.35,
     "target_angles": {
         "right_elbow": [80, 180],
         "left_elbow": [80, 180],
@@ -138,6 +142,10 @@ SMOOTHING_ALPHA = _CONFIG["smoothing_alpha"]
 TARGET_ANGLES = _CONFIG["target_angles"]
 ARM_ANGLE_OFFSET = _CONFIG.get("arm_angle_offset", 0)
 ELBOW_ANGLE_MODE = _CONFIG.get("elbow_angle_mode", "max")
+ELBOW_AUTO_DEPTH_M = float(_CONFIG.get("elbow_auto_depth_m", 0.15))
+ELBOW_ALERT_ANGLE = float(_CONFIG.get("elbow_alert_angle", 90))
+ELBOW_ALERT_TOL = float(_CONFIG.get("elbow_alert_tolerance", 5))
+ELBOW_ALERT_RED_ALPHA = float(_CONFIG.get("elbow_alert_red_alpha", 0.35))
 _POSE_LANDMARKER_CFG = _CONFIG.get("pose_landmarker", _DEFAULT_CONFIG["pose_landmarker"])
 
 # MediaPipe Tasks API aliases
@@ -350,10 +358,16 @@ class PoseCore:
                 and ankle_below_knee(lm_norm, side)
             )
 
-        def select_elbow_angle(a3d, a2d):
+        def select_elbow_angle(a3d, a2d, depth_delta=None, extension_angle=None):
             if a3d is None and a2d is None:
                 return None
             mode = str(ELBOW_ANGLE_MODE).lower()
+            if mode == "extension":
+                return extension_angle if extension_angle is not None else (a3d if a3d is not None else a2d)
+            if mode == "auto":
+                if depth_delta is not None and abs(depth_delta) >= ELBOW_AUTO_DEPTH_M:
+                    return a3d if a3d is not None else a2d
+                return a2d if a2d is not None else a3d
             if mode == "3d":
                 return a3d if a3d is not None else a2d
             if mode == "2d":
@@ -375,8 +389,16 @@ class PoseCore:
             elbow_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_ELBOW])
             wrist_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_WRIST])
             angle_r_elbow_3d = calculate_angle(shoulder_r, elbow_r, wrist_r, use_3d=True)
+            depth_r = wrist_r[2] - shoulder_r[2]
+            se_r = np.linalg.norm(np.array(shoulder_r) - np.array(elbow_r))
+            ew_r = np.linalg.norm(np.array(elbow_r) - np.array(wrist_r))
+            sw_r = np.linalg.norm(np.array(shoulder_r) - np.array(wrist_r))
+            max_r = se_r + ew_r if se_r + ew_r > 1e-6 else None
+            extension_r = 180.0 * (sw_r / max_r) if max_r else None
         else:
             angle_r_elbow_3d = None
+            depth_r = None
+            extension_r = None
         if (
             (lm[PoseLandmark.RIGHT_SHOULDER].visibility or 0) > VISIBILITY_THRESHOLD
             and (lm[PoseLandmark.RIGHT_ELBOW].visibility or 0) > VISIBILITY_THRESHOLD
@@ -388,7 +410,13 @@ class PoseCore:
             angle_r_elbow_2d = calculate_angle(shoulder_r_2d, elbow_r_2d, wrist_r_2d, use_3d=False)
         else:
             angle_r_elbow_2d = None
-        angle_r_elbow = select_elbow_angle(angle_r_elbow_3d, angle_r_elbow_2d)
+        if extension_r is None and angle_r_elbow_2d is not None:
+            se_r = np.linalg.norm(np.array(shoulder_r_2d) - np.array(elbow_r_2d))
+            ew_r = np.linalg.norm(np.array(elbow_r_2d) - np.array(wrist_r_2d))
+            sw_r = np.linalg.norm(np.array(shoulder_r_2d) - np.array(wrist_r_2d))
+            max_r = se_r + ew_r if se_r + ew_r > 1e-6 else None
+            extension_r = 180.0 * (sw_r / max_r) if max_r else None
+        angle_r_elbow = select_elbow_angle(angle_r_elbow_3d, angle_r_elbow_2d, depth_r, extension_r)
         if angle_r_elbow is not None:
             angle_r_elbow = angle_r_elbow + ARM_ANGLE_OFFSET
 
@@ -399,8 +427,16 @@ class PoseCore:
             elbow_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_ELBOW])
             wrist_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_WRIST])
             angle_l_elbow_3d = calculate_angle(shoulder_l, elbow_l, wrist_l, use_3d=True)
+            depth_l = wrist_l[2] - shoulder_l[2]
+            se_l = np.linalg.norm(np.array(shoulder_l) - np.array(elbow_l))
+            ew_l = np.linalg.norm(np.array(elbow_l) - np.array(wrist_l))
+            sw_l = np.linalg.norm(np.array(shoulder_l) - np.array(wrist_l))
+            max_l = se_l + ew_l if se_l + ew_l > 1e-6 else None
+            extension_l = 180.0 * (sw_l / max_l) if max_l else None
         else:
             angle_l_elbow_3d = None
+            depth_l = None
+            extension_l = None
         if (
             (lm[PoseLandmark.LEFT_SHOULDER].visibility or 0) > VISIBILITY_THRESHOLD
             and (lm[PoseLandmark.LEFT_ELBOW].visibility or 0) > VISIBILITY_THRESHOLD
@@ -412,7 +448,13 @@ class PoseCore:
             angle_l_elbow_2d = calculate_angle(shoulder_l_2d, elbow_l_2d, wrist_l_2d, use_3d=False)
         else:
             angle_l_elbow_2d = None
-        angle_l_elbow = select_elbow_angle(angle_l_elbow_3d, angle_l_elbow_2d)
+        if extension_l is None and angle_l_elbow_2d is not None:
+            se_l = np.linalg.norm(np.array(shoulder_l_2d) - np.array(elbow_l_2d))
+            ew_l = np.linalg.norm(np.array(elbow_l_2d) - np.array(wrist_l_2d))
+            sw_l = np.linalg.norm(np.array(shoulder_l_2d) - np.array(wrist_l_2d))
+            max_l = se_l + ew_l if se_l + ew_l > 1e-6 else None
+            extension_l = 180.0 * (sw_l / max_l) if max_l else None
+        angle_l_elbow = select_elbow_angle(angle_l_elbow_3d, angle_l_elbow_2d, depth_l, extension_l)
         if angle_l_elbow is not None:
             angle_l_elbow = angle_l_elbow + ARM_ANGLE_OFFSET
 
@@ -531,6 +573,7 @@ class PoseCore:
         connection_spec = None
         lm = lm_world = None
         angles = None
+        alert_red = False
 
         if results and results.pose_landmarks and results.pose_world_landmarks:
             lm_raw = results.pose_landmarks[0]
@@ -538,6 +581,15 @@ class PoseCore:
             self.last_smoothed_lm = lm
             lm_world = results.pose_world_landmarks[0]
             text_lines, connection_spec, angles = self._build_text_lines(lm, lm_world, w, h)
+            if angles:
+                le = angles.get("left_elbow")
+                re = angles.get("right_elbow")
+                alert_red = any(
+                    a is not None and abs(a - ELBOW_ALERT_ANGLE) <= ELBOW_ALERT_TOL
+                    for a in (le, re)
+                )
+            else:
+                alert_red = False
 
             # Log batch
             ts_ms = int(self.frame_count * self.frame_interval_ms)
@@ -563,6 +615,7 @@ class PoseCore:
             "connection_spec": connection_spec,
             "landmarks": lm,
             "world_landmarks": lm_world,
+            "alert_red": alert_red,
         }
 
 

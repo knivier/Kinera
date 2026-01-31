@@ -139,9 +139,10 @@ def _build_human_mesh(xs, ys, zs):
     return triangles
 
 
-def run_viewer(camera_id=0, model="full", detect_every_n=2):
+def run_viewer(camera_id=0):
+    """All pipeline options (model_type, detect_every_n, etc.) come from cv.py config."""
     try:
-        core = PoseCore(camera_id=camera_id, model_type=model, detect_every_n=detect_every_n, use_gpu=False)
+        core = PoseCore(camera_id=camera_id)
     except RuntimeError as exc:
         print(exc)
         return
@@ -199,9 +200,7 @@ def run_viewer(camera_id=0, model="full", detect_every_n=2):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="3D viewer (uses cv.py core).")
+    parser = argparse.ArgumentParser(description="3D viewer (all options from cv.py / config.yaml).")
     parser.add_argument("--camera", type=int, default=0, help="Camera device id")
-    parser.add_argument("--model", choices=("lite", "full", "heavy"), default="full", help="Pose model")
-    parser.add_argument("--skip", type=int, default=2, help="Run pose every N frames")
     args = parser.parse_args()
-    run_viewer(camera_id=args.camera, model=args.model, detect_every_n=args.skip)
+    run_viewer(camera_id=args.camera)

@@ -4,45 +4,139 @@ Core CV pipeline: pose detection, smoothing, angles, text panel content, logging
 Used by cv_view.py (2D skeleton + text panel) and graphts.py (3D viewer).
 """
 
-# Qt/OpenCV GUI: reduce platform/font noise
+# Qt/OpenCV GUI: reduce platform/font noise (set before importing cv2)
 import os
 import signal
+import sys
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 import json
 import urllib.request
 
-import cv2
-import mediapipe as mp
-import numpy as np
-
 if "QT_QPA_PLATFORM" not in os.environ:
     os.environ["QT_QPA_PLATFORM"] = "xcb"
 if "QT_QPA_FONTDIR" not in os.environ:
-    for _path in ("/usr/share/fonts", "/usr/local/share/fonts"):
+    for _path in (
+        "/usr/share/fonts/truetype",
+        "/usr/share/fonts/TTF",
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+    ):
         if os.path.isdir(_path):
             os.environ["QT_QPA_FONTDIR"] = _path
             break
 _ql = os.environ.get("QT_LOGGING_RULES", "")
-if "qpa" not in _ql.lower():
-    os.environ["QT_LOGGING_RULES"] = (_ql + ";qt.qpa.*=false").strip(";")
+for _tag in ("qpa", "gui", "font"):
+    if _tag not in _ql.lower():
+        os.environ["QT_LOGGING_RULES"] = (
+            (_ql.rstrip(";") + ";qt.qpa.*=false;qt.gui.*=false").strip(";")
+        )
+        break
 
-# ------------------ Config ------------------
-DETECT_EVERY_N = 2          # Run pose detection every N frames (2 = ~2x FPS)
-USE_GPU = True              # Try GPU delegate (may fallback to CPU)
-LOG_BATCH_SIZE = 30         # Write log entries in batches
-LOG_SAVE_MS = True          # Timestamps in milliseconds
-SAVE_WORLD_COORDS = False   # Store world coords in log for 3D replay
-SMOOTHING_ALPHA = 0.4       # Temporal smoothing (0=full smooth, 1=no smooth)
+# Optional: suppress known MediaPipe/absl and Qt font warnings (set CV_QUIET_WARNINGS=1)
+if os.environ.get("CV_QUIET_WARNINGS", "").lower() in ("1", "true", "yes"):
+    _stderr_orig = sys.stderr
+    _skip_phrases = (
+        "inference_feedback_manager",
+        "QFont::fromString",
+        "QFontDatabase:",
+        "Note that Qt no longer ships fonts",
+        "landmark_projection_calculator",
+        "WARNING: All log messages before absl",
+    )
+    class _FilteredStderr:
+        def write(self, s):
+            if s and not any(p in s for p in _skip_phrases):
+                _stderr_orig.write(s)
+        def flush(self):
+            _stderr_orig.flush()
+    sys.stderr = _FilteredStderr()
 
-# Target angle ranges (deg): (min, max). Limb drawn green if in range, red otherwise.
-TARGET_ANGLES = {
-    "right_elbow": (80, 180),
-    "left_elbow": (80, 180),
-    "right_knee": (80, 180),
-    "left_knee": (80, 180),
+import cv2
+import mediapipe as mp
+import numpy as np
+
+# ------------------ Config (loaded from cv/config.yaml) ------------------
+_CV_DIR = Path(__file__).resolve().parent
+_CONFIG_CANDIDATES = (_CV_DIR / "config.yaml", _CV_DIR / "config.yml", _CV_DIR / "config.json")
+
+_DEFAULT_CONFIG = {
+    "model_type": "heavy",
+    "detect_every_n": 2,
+    "use_gpu": True,
+    "detect_scale": 1.0,
+    "log_batch_size": 30,
+    "log_save_ms": True,
+    "save_world_coords": False,
+    "smoothing_alpha": 0.4,
+    "arm_angle_offset": 0,
+    "target_angles": {
+        "right_elbow": [80, 180],
+        "left_elbow": [80, 180],
+        "right_knee": [80, 180],
+        "left_knee": [80, 180],
+    },
+    "pose_landmarker": {
+        "min_pose_detection_confidence": 0.6,
+        "min_pose_presence_confidence": 0.6,
+        "min_tracking_confidence": 0.6,
+    },
 }
+
+
+def load_config(path=None):
+    """Load config from cv/config.yaml (or .yml / config.json). YAML natively supports # comments. Missing keys or file → use defaults."""
+    import yaml
+    cfg = json.loads(json.dumps(_DEFAULT_CONFIG))  # deep copy
+    candidates = [Path(path) if not isinstance(path, Path) else path] if path is not None else list(_CONFIG_CANDIDATES)
+    for p in candidates:
+        if p is None or not p.exists():
+            continue
+        try:
+            with open(p, encoding="utf-8") as f:
+                raw = f.read()
+            suf = p.suffix.lower()
+            if suf in (".yaml", ".yml"):
+                data = yaml.safe_load(raw)
+            else:
+                data = json.loads(raw)
+            if not isinstance(data, dict):
+                continue
+            for k, v in data.items():
+                if k == "target_angles" and isinstance(v, dict):
+                    existing = cfg.get("target_angles") or {}
+                    for j, r in v.items():
+                        existing[j] = tuple(r) if isinstance(r, list) else r
+                    cfg["target_angles"] = existing
+                elif k == "pose_landmarker" and isinstance(v, dict):
+                    cfg.setdefault("pose_landmarker", {}).update(v)
+                else:
+                    cfg[k] = v
+            break
+        except (json.JSONDecodeError, yaml.YAMLError, OSError):
+            continue
+    # Ensure target_angles values are tuples
+    if "target_angles" in cfg and isinstance(cfg["target_angles"], dict):
+        cfg["target_angles"] = {
+            j: (tuple(r) if isinstance(r, list) else r)
+            for j, r in cfg["target_angles"].items()
+        }
+    return cfg
+
+
+_CONFIG = load_config()
+MODEL_TYPE = _CONFIG.get("model_type", "heavy")
+DETECT_EVERY_N = _CONFIG["detect_every_n"]
+USE_GPU = _CONFIG["use_gpu"]
+DETECT_SCALE = _CONFIG["detect_scale"]
+LOG_BATCH_SIZE = _CONFIG["log_batch_size"]
+LOG_SAVE_MS = _CONFIG["log_save_ms"]
+SAVE_WORLD_COORDS = _CONFIG["save_world_coords"]
+SMOOTHING_ALPHA = _CONFIG["smoothing_alpha"]
+TARGET_ANGLES = _CONFIG["target_angles"]
+ARM_ANGLE_OFFSET = _CONFIG.get("arm_angle_offset", 0)
+_POSE_LANDMARKER_CFG = _CONFIG.get("pose_landmarker", _DEFAULT_CONFIG["pose_landmarker"])
 
 # MediaPipe Tasks API aliases
 BaseOptions = mp.tasks.BaseOptions
@@ -56,31 +150,28 @@ drawing_utils = mp.tasks.vision.drawing_utils
 
 # ------------------ Helpers ------------------
 def calculate_angle(a, b, c, use_3d=False):
-    """Calculate angle between three points."""
-    a = np.array(a)
-    b = np.array(b)
-    c = np.array(c)
-    if use_3d and len(a) >= 3 and len(b) >= 3 and len(c) >= 3:
-        vec1 = a - b
-        vec2 = c - b
-        dot_product = np.dot(vec1, vec2)
-        norm1 = np.linalg.norm(vec1)
-        norm2 = np.linalg.norm(vec2)
-        if norm1 > 0 and norm2 > 0:
-            cos_angle = np.clip(dot_product / (norm1 * norm2), -1.0, 1.0)
-            angle = np.arccos(cos_angle) * 180.0 / np.pi
-        else:
-            angle = 0.0
-    else:
-        radians = np.arctan2(c[1]-b[1], c[0]-b[0]) - np.arctan2(a[1]-b[1], a[0]-b[0])
-        angle = np.abs(radians * 180.0 / np.pi)
-        if angle > 180.0:
-            angle = 360 - angle
-    return angle
+    """Angle at vertex b (a–b–c) in degrees [0, 180]. Uses dot-product formula in 2D or 3D for consistency."""
+    a = np.array(a, dtype=float)
+    b = np.array(b, dtype=float)
+    c = np.array(c, dtype=float)
+    dim = 3 if (use_3d and len(a) >= 3 and len(b) >= 3 and len(c) >= 3) else 2
+    vec1 = (a - b)[:dim]
+    vec2 = (c - b)[:dim]
+    norm1 = np.linalg.norm(vec1)
+    norm2 = np.linalg.norm(vec2)
+    if norm1 <= 0 or norm2 <= 0:
+        return 0.0
+    cos_angle = np.clip(np.dot(vec1, vec2) / (norm1 * norm2), -1.0, 1.0)
+    return float(np.arccos(cos_angle) * 180.0 / np.pi)
 
 
 def landmark_to_xy(landmark, width, height):
     return [landmark.x * width, landmark.y * height]
+
+
+def landmark_to_norm_xy(landmark):
+    """Normalized image-plane [x, y] for angle-in-view-plane (e.g. elbow)."""
+    return [landmark.x, landmark.y]
 
 
 def landmark_to_xyz(landmark):
@@ -126,7 +217,7 @@ def build_text_panel(lines, width=400, height=1200, bg_color=(40, 40, 40),
     return panel
 
 
-def get_pose_model_path(model_type="full"):
+def get_pose_model_path(model_type="lite"):
     """Return path to pose landmarker model, downloading if needed."""
     model_dir = Path(__file__).resolve().parent / "models"
     model_dir.mkdir(exist_ok=True)
@@ -140,6 +231,7 @@ def get_pose_model_path(model_type="full"):
 
 
 def create_pose_landmarker(model_type="heavy", use_gpu=USE_GPU):
+    pm = _POSE_LANDMARKER_CFG
     model_path = get_pose_model_path(model_type)
     base_opts = BaseOptions(model_asset_path=model_path)
     if use_gpu:
@@ -147,9 +239,9 @@ def create_pose_landmarker(model_type="heavy", use_gpu=USE_GPU):
     options = PoseLandmarkerOptions(
         base_options=base_opts,
         running_mode=VisionRunningMode.VIDEO,
-        min_pose_detection_confidence=0.6,
-        min_pose_presence_confidence=0.6,
-        min_tracking_confidence=0.6,
+        min_pose_detection_confidence=pm.get("min_pose_detection_confidence", 0.6),
+        min_pose_presence_confidence=pm.get("min_pose_presence_confidence", 0.6),
+        min_tracking_confidence=pm.get("min_tracking_confidence", 0.6),
     )
     try:
         return PoseLandmarker.create_from_options(options)
@@ -159,9 +251,9 @@ def create_pose_landmarker(model_type="heavy", use_gpu=USE_GPU):
             options = PoseLandmarkerOptions(
                 base_options=base_opts,
                 running_mode=VisionRunningMode.VIDEO,
-                min_pose_detection_confidence=0.6,
-                min_pose_presence_confidence=0.6,
-                min_tracking_confidence=0.6,
+                min_pose_detection_confidence=pm.get("min_pose_detection_confidence", 0.6),
+                min_pose_presence_confidence=pm.get("min_pose_presence_confidence", 0.6),
+                min_tracking_confidence=pm.get("min_tracking_confidence", 0.6),
             )
             return PoseLandmarker.create_from_options(options)
         raise
@@ -174,8 +266,9 @@ class PoseCore:
         camera_id=0,
         width=1920,
         height=1200,
-        model_type="heavy",
+        model_type=MODEL_TYPE,
         detect_every_n=DETECT_EVERY_N,
+        detect_scale=DETECT_SCALE,
         smoothing_alpha=SMOOTHING_ALPHA,
         log_path=None,
         save_world_coords=SAVE_WORLD_COORDS,
@@ -186,6 +279,7 @@ class PoseCore:
         self.width = width
         self.height = height
         self.detect_every_n = detect_every_n
+        self.detect_scale = max(0.25, min(1.0, float(detect_scale)))
         self.smoothing_alpha = smoothing_alpha
         self.save_world_coords = save_world_coords
         self.log_batch_size = log_batch_size
@@ -252,23 +346,31 @@ class PoseCore:
                 and ankle_below_knee(lm_norm, side)
             )
 
-        # Angles using world coords for better accuracy
+        # Elbow angles: use 2D image-plane (normalized) so angle matches camera view; straight arm → 180°, tight bend → correct.
         angle_r_elbow = angle_l_elbow = angle_r_knee = angle_l_knee = None
-        if (lm_world[PoseLandmark.RIGHT_SHOULDER].visibility > VISIBILITY_THRESHOLD and
-            lm_world[PoseLandmark.RIGHT_ELBOW].visibility > VISIBILITY_THRESHOLD and
-            lm_world[PoseLandmark.RIGHT_WRIST].visibility > VISIBILITY_THRESHOLD):
-            shoulder_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_SHOULDER])
-            elbow_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_ELBOW])
-            wrist_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_WRIST])
-            angle_r_elbow = calculate_angle(shoulder_r, elbow_r, wrist_r, use_3d=True)
+        if (
+            (lm[PoseLandmark.RIGHT_SHOULDER].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.RIGHT_ELBOW].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.RIGHT_WRIST].visibility or 0) > VISIBILITY_THRESHOLD
+        ):
+            shoulder_r = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_SHOULDER])
+            elbow_r = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_ELBOW])
+            wrist_r = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_WRIST])
+            angle_r_elbow = calculate_angle(shoulder_r, elbow_r, wrist_r, use_3d=False)
+            if angle_r_elbow is not None:
+                angle_r_elbow = angle_r_elbow + ARM_ANGLE_OFFSET
 
-        if (lm_world[PoseLandmark.LEFT_SHOULDER].visibility > VISIBILITY_THRESHOLD and
-            lm_world[PoseLandmark.LEFT_ELBOW].visibility > VISIBILITY_THRESHOLD and
-            lm_world[PoseLandmark.LEFT_WRIST].visibility > VISIBILITY_THRESHOLD):
-            shoulder_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_SHOULDER])
-            elbow_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_ELBOW])
-            wrist_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_WRIST])
-            angle_l_elbow = calculate_angle(shoulder_l, elbow_l, wrist_l, use_3d=True)
+        if (
+            (lm[PoseLandmark.LEFT_SHOULDER].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.LEFT_ELBOW].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.LEFT_WRIST].visibility or 0) > VISIBILITY_THRESHOLD
+        ):
+            shoulder_l = landmark_to_norm_xy(lm[PoseLandmark.LEFT_SHOULDER])
+            elbow_l = landmark_to_norm_xy(lm[PoseLandmark.LEFT_ELBOW])
+            wrist_l = landmark_to_norm_xy(lm[PoseLandmark.LEFT_WRIST])
+            angle_l_elbow = calculate_angle(shoulder_l, elbow_l, wrist_l, use_3d=False)
+            if angle_l_elbow is not None:
+                angle_l_elbow = angle_l_elbow + ARM_ANGLE_OFFSET
 
         if (lm_world[PoseLandmark.RIGHT_HIP].visibility > VISIBILITY_THRESHOLD and
             lm_world[PoseLandmark.RIGHT_KNEE].visibility > VISIBILITY_THRESHOLD and
@@ -366,6 +468,10 @@ class PoseCore:
 
         if self.frame_count % self.detect_every_n == 0:
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            if self.detect_scale < 1.0:
+                dw, dh = int(w * self.detect_scale), int(h * self.detect_scale)
+                if dw > 0 and dh > 0:
+                    frame_rgb = cv2.resize(frame_rgb, (dw, dh), interpolation=cv2.INTER_LINEAR)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
             timestamp_ms = int(self.frame_count * self.frame_interval_ms)
             self.last_results = self.pose.detect_for_video(mp_image, timestamp_ms)
@@ -414,6 +520,23 @@ class PoseCore:
             "landmarks": lm,
             "world_landmarks": lm_world,
         }
+
+
+def flip_landmarks_x(lm):
+    """Return a copy of normalized landmarks with x flipped (1 - x) for mirror view."""
+    if lm is None:
+        return None
+    from mediapipe.tasks.python.components.containers import landmark as landmark_module
+    return [
+        landmark_module.NormalizedLandmark(
+            x=1.0 - p.x,
+            y=p.y,
+            z=getattr(p, "z", 0) or 0,
+            visibility=getattr(p, "visibility", None),
+            presence=getattr(p, "presence", None),
+        )
+        for p in lm
+    ]
 
 
 def draw_skeleton(frame, lm, connection_spec=None):

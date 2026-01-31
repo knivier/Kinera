@@ -7,12 +7,13 @@ import argparse
 import cv2
 import numpy as np
 
-from cv import PoseCore, build_text_panel, draw_skeleton, install_ctrl_c
+from cv import PoseCore, build_text_panel, draw_skeleton, flip_landmarks_x, install_ctrl_c
 
 
-def run_view(camera_id=0, width=1920, height=1200, model="heavy"):
+def run_view(camera_id=0, width=1920, height=1200):
+    """All pipeline options (model, detect_every_n, detect_scale, etc.) come from cv.py config."""
     try:
-        core = PoseCore(camera_id=camera_id, width=width, height=height, model_type=model)
+        core = PoseCore(camera_id=camera_id, width=width, height=height)
     except RuntimeError as exc:
         print(exc)
         return
@@ -38,7 +39,9 @@ def run_view(camera_id=0, width=1920, height=1200, model="heavy"):
                 break
 
             frame = data["frame"]
-            draw_skeleton(frame, data["landmarks"], data["connection_spec"])
+            frame = cv2.flip(frame, 1)  # mirror view so it looks natural to the user
+            lm_mirrored = flip_landmarks_x(data["landmarks"])  # align skeleton with mirrored frame
+            draw_skeleton(frame, lm_mirrored, data["connection_spec"])
 
             cam_display = cv2.resize(frame, (width, WIN_HEIGHT))
             text_panel = build_text_panel(data["text_lines"], width=TEXT_PANEL_WIDTH, height=WIN_HEIGHT)
@@ -57,10 +60,9 @@ def run_view(camera_id=0, width=1920, height=1200, model="heavy"):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Pose GUI with skeleton + text panel (uses cv.py core).")
+    parser = argparse.ArgumentParser(description="Pose GUI (all options from cv.py / config.yaml).")
     parser.add_argument("--camera", type=int, default=0, help="Camera device id")
     parser.add_argument("--width", type=int, default=1920, help="Capture width")
     parser.add_argument("--height", type=int, default=1200, help="Capture height")
-    parser.add_argument("--model", choices=("lite", "full", "heavy"), default="heavy", help="Pose model")
     args = parser.parse_args()
-    run_view(camera_id=args.camera, width=args.width, height=args.height, model=args.model)
+    run_view(camera_id=args.camera, width=args.width, height=args.height)

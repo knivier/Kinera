@@ -137,15 +137,14 @@ fn stop_cv_feed(state: tauri::State<'_, SessionState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Write workout_id.json: line 1 = {"workout_id":"squat"}, line 2 = "ON" or "OFF" (session active).
+/// Write workout_id.json as JSONL: one line per state, {"workout_id":"squat","session":"on"} or "off".
 #[tauri::command]
 fn write_workout_id(workout_id: String, session: String) -> Result<(), String> {
     let root = repo_root()?;
     let path = root.join("workout_id.json");
-    let line1 = serde_json::json!({ "workout_id": workout_id }).to_string();
-    let line2 = if session.eq_ignore_ascii_case("on") { "ON" } else { "OFF" };
-    let content = format!("{}\n{}\n", line1, line2);
-    std::fs::write(&path, content).map_err(|e| e.to_string())?;
+    let session_val = if session.eq_ignore_ascii_case("on") { "on" } else { "off" };
+    let line = serde_json::json!({ "workout_id": workout_id, "session": session_val }).to_string();
+    std::fs::write(&path, format!("{}\n", line)).map_err(|e| e.to_string())?;
     Ok(())
 }
 

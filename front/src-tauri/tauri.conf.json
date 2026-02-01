@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "phase0-app",
+  "productName": "Kinera",
   "version": "0.1.0",
-  "identifier": "com.root.phase0-app",
+  "identifier": "com.kinera.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "phase0-app",
+        "title": "Kinera",
         "width": 800,
         "height": 600
       }

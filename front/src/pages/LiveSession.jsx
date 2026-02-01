@@ -86,13 +86,19 @@ export default function LiveSession() {
     setStartRef.current = null;
   }, [workoutId]);
 
-  // Persist selected workout to workout_id.json (Tauri only); updates whenever workoutId changes.
+  // Persist workout_id.json (Tauri only): line 1 = workout id, line 2 = ON (set in progress) or OFF (rest / ended).
+  const sessionOn = isRunning && !betweenSetsMode;
   useEffect(() => {
     if (typeof window === "undefined" || (window.__TAURI_INTERNALS__ == null && window.__TAURI__ == null)) return;
     import("@tauri-apps/api/core")
-      .then((m) => m.invoke("write_workout_id", { workoutId: workoutId ?? "" }))
+      .then((m) =>
+        m.invoke("write_workout_id", {
+          workoutId: workoutId ?? "",
+          session: sessionOn ? "ON" : "OFF",
+        })
+      )
       .catch(() => {});
-  }, [workoutId]);
+  }, [workoutId, sessionOn]);
 
   // Time since last rest (updates every second when running)
   useEffect(() => {

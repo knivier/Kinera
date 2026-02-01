@@ -151,7 +151,7 @@ export default function WorkoutPicker() {
     if (typeof window !== "undefined" && (window.__TAURI_INTERNALS__ != null || window.__TAURI__ != null)) {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("write_workout_id", { workoutId });
+        await invoke("write_workout_id", { workoutId, session: "OFF" });
       } catch (_) {}
     }
     navigate("/live", { state: { workoutId } });

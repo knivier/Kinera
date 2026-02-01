@@ -87,17 +87,19 @@ fn stop_cv_feed(state: tauri::State<'_, CvFeedState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Write the selected workout id to workout_id.json (one line: {"workout_id":"squat"}).
+/// Write workout_id.json: line 1 = {"workout_id":"squat"}, line 2 = "ON" or "OFF" (session active).
 #[tauri::command]
-fn write_workout_id(workout_id: String) -> Result<(), String> {
+fn write_workout_id(workout_id: String, session: String) -> Result<(), String> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
         .join("../..")
         .canonicalize()
         .map_err(|e| format!("repo root: {}", e))?;
     let path = repo_root.join("workout_id.json");
-    let line = serde_json::json!({ "workout_id": workout_id }).to_string();
-    std::fs::write(&path, line).map_err(|e| e.to_string())?;
+    let line1 = serde_json::json!({ "workout_id": workout_id }).to_string();
+    let line2 = if session.eq_ignore_ascii_case("on") { "ON" } else { "OFF" };
+    let content = format!("{}\n{}\n", line1, line2);
+    std::fs::write(&path, content).map_err(|e| e.to_string())?;
     Ok(())
 }
 

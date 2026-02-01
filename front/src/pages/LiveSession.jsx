@@ -8,6 +8,7 @@ import TimerIcon from "@mui/icons-material/Timer";
 import AddIcon from "@mui/icons-material/Add";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import FeedbackIcon from "@mui/icons-material/Feedback";
+// Tauri APIs are loaded dynamically when starting the feed so a missing/failing API never blanks the page.
 
 // Metrics config per workout (title + exercise-specific metric placeholders)
 const WORKOUT_METRICS = {
@@ -39,13 +40,14 @@ export default function LiveSession() {
   const workoutId = location.state?.workoutId ?? null;
 
   const [isRunning, setIsRunning] = useState(false);
-  const [stream, setStream] = useState(null); // only set if user explicitly chooses "Use browser camera" fallback
   const [error, setError] = useState(null);
   const [cvStreamError, setCvStreamError] = useState(false);
-  const videoRef = useRef(null);
+  // Native feed (Tauri): cv.py frames from IPC. Fallback: stream URL when running in browser.
+  const [cvFrame, setCvFrame] = useState(null);
+  const unlistenCvFrameRef = useRef(null);
 
-  // Explicitly use cv-view systems: camera + skeleton preview from CV stream (same camera as cv-view.py / cv/config.yaml).
   const CV_STREAM_URL = "http://127.0.0.1:8765/cv-stream";
+  const isTauri = typeof window !== "undefined" && (window.__TAURI_INTERNALS__ != null || window.__TAURI__ != null);
 
   // Current set: rep timestamps (CV or + Rep). Set boundary = first rep until "Stop current set".
   const [repTimes, setRepTimes] = useState([]);
@@ -82,21 +84,6 @@ export default function LiveSession() {
     setStartRef.current = null;
   }, [workoutId]);
 
-  useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
-      videoRef.current.play().catch(() => {});
-    }
-  }, [stream]);
-
-  useEffect(() => {
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
-      }
-    };
-  }, [stream]);
-
   // Time since last rest (updates every second when running)
   useEffect(() => {
     if (!isRunning) return;
@@ -110,13 +97,42 @@ export default function LiveSession() {
     return () => clearInterval(interval);
   }, [isRunning, lastRestAt]);
 
-  /** Start Workout: use CV stream (cv-view camera + skeleton) only. End Workout: stop and show summary. */
-  async function handleToggle() {
-    if (isRunning) {
-      if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
-        setStream(null);
+  // Native feed (Tauri): start cv.py pipeline and listen for frames; stop and unlisten on end.
+  useEffect(() => {
+    if (!isTauri || !isRunning) return;
+    setCvFrame(null);
+    setCvStreamError(false);
+    let unlisten = null;
+    Promise.all([
+      import("@tauri-apps/api/core").then((m) => m.invoke("start_cv_feed")),
+      import("@tauri-apps/api/event").then((m) =>
+        m.listen("cv-frame", (ev) => {
+          const b64 = ev.payload;
+          if (typeof b64 === "string") setCvFrame(`data:image/jpeg;base64,${b64}`);
+        })
+      ),
+    ])
+      .then(([, unlistenFn]) => {
+        unlisten = unlistenFn;
+        unlistenCvFrameRef.current = unlistenFn;
+      })
+      .catch((e) => {
+        setCvStreamError(true);
+        setError(String(e));
+      });
+    return () => {
+      import("@tauri-apps/api/core").then((m) => m.invoke("stop_cv_feed")).catch(() => {});
+      if (unlistenCvFrameRef.current) {
+        unlistenCvFrameRef.current();
+        unlistenCvFrameRef.current = null;
       }
+      setCvFrame(null);
+    };
+  }, [isTauri, isRunning]);
+
+  /** Start Workout: camera + skeleton from cv.py (native in Tauri, stream in browser). End Workout: show summary. */
+  function handleToggle() {
+    if (isRunning) {
       setError(null);
       setIsRunning(false);
       setShowSummary(true);
@@ -130,7 +146,6 @@ export default function LiveSession() {
     setStartRef.current = null;
     setShowSummary(false);
     setBetweenSetsMode(false);
-    // Camera + skeleton come from CV stream (cv-view.py systems); do not open browser camera here.
     setIsRunning(true);
   }
 
@@ -197,6 +212,23 @@ export default function LiveSession() {
   const cornerRadius = 6;
   const totalReps = completedSets.reduce((sum, s) => sum + s.reps, 0);
   const betweenSets = isRunning && betweenSetsMode;
+
+  // Unknown workout id: show message instead of full UI to avoid blank or broken screen.
+  if (workoutId && !workoutConfig) {
+    return (
+      <Box sx={{ maxWidth: 1400, mx: "auto" }}>
+        <Grow in timeout={400}>
+          <Paper elevation={0} sx={{ p: 6, borderRadius: 4, textAlign: "center", background: "#ffffff", border: "1px solid #e5e7eb" }}>
+            <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>Unknown workout</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>"{workoutId}" is not configured.</Typography>
+            <Button variant="contained" size="large" onClick={() => navigate("/")} sx={{ px: 4, py: 1.5, borderRadius: 2, textTransform: "none", fontSize: "1rem", fontWeight: 600 }}>
+              Choose Workout
+            </Button>
+          </Paper>
+        </Grow>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ maxWidth: 1400, mx: "auto" }}>
@@ -412,12 +444,11 @@ export default function LiveSession() {
             border: "1px solid #2d2d2d",
           }}
         >
-          {isRunning && !cvStreamError && (
+          {isRunning && isTauri && cvFrame && (
             <img
-              key="cv-stream"
-              src={CV_STREAM_URL}
-              alt="Camera with skeleton overlay"
-              onError={() => setCvStreamError(true)}
+              key="cv-native"
+              src={cvFrame}
+              alt="Camera with skeleton overlay (cv.py)"
               style={{
                 position: "absolute",
                 inset: 0,
@@ -427,7 +458,12 @@ export default function LiveSession() {
               }}
             />
           )}
-          {isRunning && cvStreamError && (
+          {isRunning && isTauri && !cvFrame && !cvStreamError && (
+            <Box sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#1a1a1a" }}>
+              <Typography sx={{ color: "#9ca3af" }}>Starting cv.py…</Typography>
+            </Box>
+          )}
+          {isRunning && isTauri && cvStreamError && (
             <Box
               sx={{
                 position: "absolute",
@@ -442,42 +478,45 @@ export default function LiveSession() {
               }}
             >
               <Typography sx={{ color: "#fbbf24", fontSize: "0.875rem", textAlign: "center" }}>
-                CV stream unavailable. Camera and skeleton use cv-view: run python cv/cv_stream_server.py (camera from cv/config.yaml).
+                cv.py failed to start. Check Python and cv/config.yaml (camera_id). Run from repo: npm run tauri dev.
               </Typography>
-              {stream ? (
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "contain",
-                  }}
-                />
-              ) : (
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={async () => {
-                    try {
-                      const mediaStream = await navigator.mediaDevices.getUserMedia({
-                        video: { width: 1200, height: 768 },
-                      });
-                      setStream(mediaStream);
-                    } catch (e) {
-                      setError(e.message || "Could not access camera");
-                    }
-                  }}
-                  sx={{ color: "#9ca3af", borderColor: "#4b5563" }}
-                >
-                  Use browser camera instead
-                </Button>
-              )}
             </Box>
           )}
-          {!stream && (
+          {isRunning && !isTauri && !cvStreamError && (
+            <img
+              key="cv-stream"
+              src={CV_STREAM_URL}
+              alt="Camera with skeleton overlay (cv.py stream)"
+              onError={() => setCvStreamError(true)}
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+              }}
+            />
+          )}
+          {isRunning && !isTauri && cvStreamError && (
+            <Box
+              sx={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 2,
+                p: 2,
+                background: "#1a1a1a",
+              }}
+            >
+              <Typography sx={{ color: "#fbbf24", fontSize: "0.875rem", textAlign: "center" }}>
+                Camera and skeleton use cv.py only. Run: python cv/cv_stream_server.py (camera from cv/config.yaml).
+              </Typography>
+            </Box>
+          )}
+          {!isRunning && (
             <>
               <Box
                 sx={{
@@ -500,18 +539,18 @@ export default function LiveSession() {
                 }}
               >
                 <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  {error ? error : "Camera + skeleton (cv-view)"}
+                  {error ? error : "Camera + skeleton (cv.py)"}
                 </Typography>
-                <Typography variant="body2">Start workout to see CV stream. Run: python cv/cv_stream_server.py</Typography>
+                <Typography variant="body2">Start workout to see feed from cv.py. Run: python cv/cv_stream_server.py</Typography>
               </Box>
             </>
           )}
           <Box sx={{ position: "absolute", left: 20, top: 20 }}>
             <Chip
-              icon={isRunning && !cvStreamError ? <CheckCircleIcon /> : undefined}
+              icon={isRunning && !cvStreamError && (isTauri ? cvFrame : true) ? <CheckCircleIcon /> : undefined}
               label={
                 !isRunning ? "Camera Off" :
-                cvStreamError ? "CV unavailable" : "Live (cv-view)"
+                cvStreamError ? "CV unavailable" : isTauri ? "Live (cv.py native)" : "Live (cv.py)"
               }
               sx={{
                 background: isRunning && !cvStreamError

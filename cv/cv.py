@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Core CV pipeline: pose detection, smoothing, angles, text panel content, logging.
+Single source for all CV: camera selection, pose, skeleton, angles (cv-view, cv_stream_server, frontend use this only).
 Used by cv_view.py (2D skeleton + text panel) and graphts.py (3D viewer).
 """
 

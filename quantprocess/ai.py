@@ -7,53 +7,102 @@ from matplotlib import pyplot as plt
 import torch
 import torch.nn as nn
 from pathlib import Path
+from RepTracker import SimpleRepDetector
 
 BASE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BASE_DIR.parent
-JSONL_FILE = REPO_ROOT / "training-data" / "crouch" / "pose_log.jsonl"
+JSONL_FILE = REPO_ROOT / "training-data" / "pushups" / "proman.jsonl"
 OUTPUT_FILE = BASE_DIR / "dataset.jsonl"  # where we append all reps
 
+
+    
+    
 # ---------------------------
 # Load data
 # ---------------------------
 time = []
 signal = []
 
+detector = SimpleRepDetector(
+    min_threshold=120,
+    max_threshold=145,
+    joints=("left_elbow", "right_elbow")
+)
+
+rep_indexes = []
+
+def rep_summary(rep):
+    angles = [p["angle"] for p in rep]
+    times = [p["timestamp"] for p in rep]
+
+    min_angle = min(angles)
+    max_angle = max(angles)
+    duration = (times[-1] - times[0]) / 1000.0  # seconds
+    range_of_motion = max_angle - min_angle
+
+    return {
+        "min_angle": min_angle,
+        "max_angle": max_angle,
+        "duration": duration,
+        "range_of_motion": range_of_motion,
+        "num_frames": len(rep)
+    }
+
+reps = []
 with open(JSONL_FILE, "r") as f:
     for line in f:
         line = line.strip()
         if not line:
             continue
         line = line[:line.rfind("}") + 1]
+
         try:
             obj = json.loads(line)
         except:
             continue
-
-        left_knee = obj.get("angles", {}).get("left_knee")
-        right_knee = obj.get("angles", {}).get("right_knee")
-        if left_knee is None or right_knee is None:
+        
+        left_elbow = obj.get("angles", {}).get("left_elbow")
+        right_elbow = obj.get("angles", {}).get("right_elbow")
+        if left_elbow is None or right_elbow is None:
             continue
 
-        value = (left_knee + right_knee) / 2.0
+        value = (left_elbow + right_elbow) / 2.0
+
+        # ✅ append FIRST
         signal.append(value)
         time.append(obj.get("timestamp_utc", len(time)))
 
+        # print(f"Feeding angle {value} at time {obj.get('timestamp_utc')}")
+        # feed AFTER
+        rep = detector.feed(obj["angles"], obj["timestamp_utc"])
+        if rep is not None:
+            summary = rep_summary(rep)
+            print("Rep detected:", summary)
+            reps.append(rep)
+            rep_indexes.append(len(signal) - len(rep) - 2)  # index of the bottom point
+
 signal = np.array(signal)
 time = np.array(time)
-time = (time - time[0]) / 1000.0  # convert to seconds
+time = (time - time[0]) / 1000.0
+
+plt.plot(time, signal)
+plt.plot(time[rep_indexes], signal[rep_indexes], "x")
+plt.xlabel("Time (s)")
+plt.ylabel("Avg Knee Angle")
+plt.title("Detected Rep Bottoms")
+plt.show()
 
 # ---------------------------
 # Detect all reps
 # ---------------------------
-inverted = -signal
-peaks, _ = find_peaks(inverted, distance=5)
-peaks = peaks[signal[peaks] < 140]
-plt.plot(time, signal)
-plt.plot(time[peaks], signal[peaks], "x")
-plt.show()
-if len(peaks) < 2:
-    raise ValueError("Not enough peaks detected.")
+# inverted = -signal
+# peaks, _ = find_peaks(inverted, distance=5)
+# peaks = peaks[signal[peaks] < 140]
+# plt.plot(time, signal)
+# plt.plot(time[rep_indexes], signal[rep_indexes], "x")
+# plt.show()
+# if len(peaks) < 2:
+#     raise ValueError("Not enough peaks detected.")
 
 # ---------------------------
 # Extract each rep

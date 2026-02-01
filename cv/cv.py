@@ -62,6 +62,7 @@ _CV_DIR = Path(__file__).resolve().parent
 _CONFIG_CANDIDATES = (_CV_DIR / "config.yaml", _CV_DIR / "config.yml", _CV_DIR / "config.json")
 
 _DEFAULT_CONFIG = {
+    "camera_id": 0,
     "model_type": "heavy",
     "detect_every_n": 2,
     "use_gpu": True,
@@ -140,6 +141,7 @@ def load_config(path=None):
 
 
 _CONFIG = load_config()
+CAMERA_ID = int(_CONFIG.get("camera_id", 0))
 MODEL_TYPE = _CONFIG.get("model_type", "heavy")
 DETECT_EVERY_N = _CONFIG["detect_every_n"]
 USE_GPU = _CONFIG["use_gpu"]
@@ -334,7 +336,7 @@ class PoseCore:
     """
     def __init__(
         self,
-        camera_id=0,
+        camera_id=None,
         video_path=None,
         width=PREVIEW_WIDTH,
         height=PREVIEW_HEIGHT,
@@ -349,6 +351,8 @@ class PoseCore:
         log_batch_size=LOG_BATCH_SIZE,
         use_gpu=USE_GPU,
     ):
+        if camera_id is None:
+            camera_id = CAMERA_ID
         self.video_path = video_path
         self.use_video_time = video_path is not None
         self.camera_id = camera_id

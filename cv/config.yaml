@@ -1,5 +1,8 @@
-# CV pipeline config. All systems (cv-view.py, graphts.py) use only this via cv.py.
+# CV pipeline config. All systems (cv-view.py, cv_stream_server, graphts.py) use only this via cv.py.
 # To hide Qt/MediaPipe startup warnings in the terminal: CV_QUIET_WARNINGS=1 python -m cv.cv-view
+
+# Camera device index (0 = first camera, 1 = second, etc.). Used by cv-view and CV stream server.
+camera_id: 0
 
 # Pose model: "lite" (fast, less accurate), "full" (balanced), "heavy" (slow, most accurate).
 model_type: full

@@ -39,9 +39,13 @@ export default function LiveSession() {
   const workoutId = location.state?.workoutId ?? null;
 
   const [isRunning, setIsRunning] = useState(false);
-  const [stream, setStream] = useState(null);
+  const [stream, setStream] = useState(null); // only set if user explicitly chooses "Use browser camera" fallback
   const [error, setError] = useState(null);
+  const [cvStreamError, setCvStreamError] = useState(false);
   const videoRef = useRef(null);
+
+  // Explicitly use cv-view systems: camera + skeleton preview from CV stream (same camera as cv-view.py / cv/config.yaml).
+  const CV_STREAM_URL = "http://127.0.0.1:8765/cv-stream";
 
   // Current set: rep timestamps (CV or + Rep). Set boundary = first rep until "Stop current set".
   const [repTimes, setRepTimes] = useState([]);
@@ -106,7 +110,7 @@ export default function LiveSession() {
     return () => clearInterval(interval);
   }, [isRunning, lastRestAt]);
 
-  /** Start Workout: system initializes, camera on; CV reports reps. End Workout: stop camera and show summary. */
+  /** Start Workout: use CV stream (cv-view camera + skeleton) only. End Workout: stop and show summary. */
   async function handleToggle() {
     if (isRunning) {
       if (stream) {
@@ -119,21 +123,15 @@ export default function LiveSession() {
       return;
     }
     setError(null);
+    setCvStreamError(false);
     sessionStartRef.current = Date.now();
     setLastRestAt(null);
     setTimeSinceRest(0);
     setStartRef.current = null;
     setShowSummary(false);
     setBetweenSetsMode(false);
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1200, height: 768 },
-      });
-      setStream(mediaStream);
-      setIsRunning(true);
-    } catch (e) {
-      setError(e.message || "Could not access camera");
-    }
+    // Camera + skeleton come from CV stream (cv-view.py systems); do not open browser camera here.
+    setIsRunning(true);
   }
 
   /** User starts next set after resting; CV will report reps for this set. */
@@ -414,20 +412,70 @@ export default function LiveSession() {
             border: "1px solid #2d2d2d",
           }}
         >
-          {stream && (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
+          {isRunning && !cvStreamError && (
+            <img
+              key="cv-stream"
+              src={CV_STREAM_URL}
+              alt="Camera with skeleton overlay"
+              onError={() => setCvStreamError(true)}
               style={{
                 position: "absolute",
                 inset: 0,
                 width: "100%",
                 height: "100%",
-                objectFit: "cover",
+                objectFit: "contain",
               }}
             />
+          )}
+          {isRunning && cvStreamError && (
+            <Box
+              sx={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 2,
+                p: 2,
+                background: "#1a1a1a",
+              }}
+            >
+              <Typography sx={{ color: "#fbbf24", fontSize: "0.875rem", textAlign: "center" }}>
+                CV stream unavailable. Camera and skeleton use cv-view: run python cv/cv_stream_server.py (camera from cv/config.yaml).
+              </Typography>
+              {stream ? (
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "contain",
+                  }}
+                />
+              ) : (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={async () => {
+                    try {
+                      const mediaStream = await navigator.mediaDevices.getUserMedia({
+                        video: { width: 1200, height: 768 },
+                      });
+                      setStream(mediaStream);
+                    } catch (e) {
+                      setError(e.message || "Could not access camera");
+                    }
+                  }}
+                  sx={{ color: "#9ca3af", borderColor: "#4b5563" }}
+                >
+                  Use browser camera instead
+                </Button>
+              )}
+            </Box>
           )}
           {!stream && (
             <>
@@ -452,18 +500,21 @@ export default function LiveSession() {
                 }}
               >
                 <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  {error ? error : "Camera Feed"}
+                  {error ? error : "Camera + skeleton (cv-view)"}
                 </Typography>
-                <Typography variant="body2">Skeleton overlay will appear here</Typography>
+                <Typography variant="body2">Start workout to see CV stream. Run: python cv/cv_stream_server.py</Typography>
               </Box>
             </>
           )}
           <Box sx={{ position: "absolute", left: 20, top: 20 }}>
             <Chip
-              icon={stream ? <CheckCircleIcon /> : undefined}
-              label={stream ? "Live" : "Camera Off"}
+              icon={isRunning && !cvStreamError ? <CheckCircleIcon /> : undefined}
+              label={
+                !isRunning ? "Camera Off" :
+                cvStreamError ? "CV unavailable" : "Live (cv-view)"
+              }
               sx={{
-                background: stream 
+                background: isRunning && !cvStreamError
                   ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
                   : "#374151",
                 color: "#ffffff",

@@ -174,26 +174,18 @@ drawing_utils = mp.tasks.vision.drawing_utils
 
 # ------------------ Helpers ------------------
 def calculate_angle(a, b, c, use_3d=False):
+    
     """Angle at vertex b (a–b–c) in degrees [0, 180], using atan2(norm(cross), dot).
     For 3D, project onto the hinge plane (defined by a, b, c) before angle calculation.
     """
-    a = np.array(a, dtype=float)
-    b = np.array(b, dtype=float)
-    c = np.array(c, dtype=float)
-    if use_3d and len(a) >= 3 and len(b) >= 3 and len(c) >= 3:
-        vec1 = a - b
-        vec2 = c - b
-        n = np.cross(vec1, vec2)
-        n_norm = np.linalg.norm(n)
-        if n_norm > 1e-8:
-            n_hat = n / n_norm
-            vec1 = vec1 - np.dot(vec1, n_hat) * n_hat
-            vec2 = vec2 - np.dot(vec2, n_hat) * n_hat
-        cross_norm = np.linalg.norm(np.cross(vec1, vec2))
-        dot = np.dot(vec1, vec2)
-        return float(np.degrees(np.arctan2(cross_norm, dot)))
+    a = np.array(a, dtype=float)[:2]
+    b = np.array(b, dtype=float)[:2]
+    c = np.array(c, dtype=float)[:2]
+    
     vec1 = (a - b)[:2]
     vec2 = (c - b)[:2]
+    
+    
     cross = vec1[0] * vec2[1] - vec1[1] * vec2[0]
     dot = np.dot(vec1, vec2)
     return float(np.degrees(np.arctan2(abs(cross), dot)))
@@ -424,9 +416,11 @@ class PoseCore:
         if (lm_world[PoseLandmark.RIGHT_SHOULDER].visibility > VISIBILITY_THRESHOLD and
             lm_world[PoseLandmark.RIGHT_ELBOW].visibility > VISIBILITY_THRESHOLD and
             lm_world[PoseLandmark.RIGHT_WRIST].visibility > VISIBILITY_THRESHOLD):
+            
             shoulder_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_SHOULDER])
             elbow_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_ELBOW])
             wrist_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_WRIST])
+            
             angle_r_elbow_3d = calculate_angle(shoulder_r, elbow_r, wrist_r, use_3d=True)
             depth_r = wrist_r[2] - shoulder_r[2]
             se_r = np.linalg.norm(np.array(shoulder_r) - np.array(elbow_r))
@@ -497,21 +491,47 @@ class PoseCore:
         if angle_l_elbow is not None:
             angle_l_elbow = angle_l_elbow + ARM_ANGLE_OFFSET
 
+        angle_r_knee_3d = angle_r_knee_2d = None
         if (lm_world[PoseLandmark.RIGHT_HIP].visibility > VISIBILITY_THRESHOLD and
             lm_world[PoseLandmark.RIGHT_KNEE].visibility > VISIBILITY_THRESHOLD and
             lm_world[PoseLandmark.RIGHT_ANKLE].visibility > VISIBILITY_THRESHOLD):
             hip_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_HIP])
             knee_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_KNEE])
             ankle_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_ANKLE])
-            angle_r_knee = calculate_angle(hip_r, knee_r, ankle_r, use_3d=True)
+            angle_r_knee_3d = calculate_angle(hip_r, knee_r, ankle_r, use_3d=True)
+        
+        if (
+            (lm[PoseLandmark.RIGHT_HIP].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.RIGHT_KNEE].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.RIGHT_ANKLE].visibility or 0) > VISIBILITY_THRESHOLD
+        ):
+            hip_r_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_HIP])
+            knee_r_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_KNEE])
+            ankle_r_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_ANKLE])
+            angle_r_knee_2d = calculate_angle(hip_r_2d, knee_r_2d, ankle_r_2d, use_3d=False)
+        
+        angle_r_knee = angle_r_knee_3d if angle_r_knee_3d is not None else angle_r_knee_2d
 
+        angle_l_knee_3d = angle_l_knee_2d = None
         if (lm_world[PoseLandmark.LEFT_HIP].visibility > VISIBILITY_THRESHOLD and
             lm_world[PoseLandmark.LEFT_KNEE].visibility > VISIBILITY_THRESHOLD and
             lm_world[PoseLandmark.LEFT_ANKLE].visibility > VISIBILITY_THRESHOLD):
             hip_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_HIP])
             knee_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_KNEE])
             ankle_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_ANKLE])
-            angle_l_knee = calculate_angle(hip_l, knee_l, ankle_l, use_3d=True)
+            angle_l_knee_3d = calculate_angle(hip_l, knee_l, ankle_l, use_3d=True)
+        
+        if (
+            (lm[PoseLandmark.LEFT_HIP].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.LEFT_KNEE].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.LEFT_ANKLE].visibility or 0) > VISIBILITY_THRESHOLD
+        ):
+            hip_l_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_HIP])
+            knee_l_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_KNEE])
+            ankle_l_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_ANKLE])
+            angle_l_knee_2d = calculate_angle(hip_l_2d, knee_l_2d, ankle_l_2d, use_3d=False)
+        
+        angle_l_knee = angle_l_knee_3d if angle_l_knee_3d is not None else angle_l_knee_2d
 
         # Color limbs by target range: green = in range, red = out
         limb_connections = {

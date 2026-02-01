@@ -53,7 +53,7 @@ arm_angle_offset: -10
 #   max       = take the larger (helps full extension read closer to 180)
 #   auto      = use 3d when arm points toward/away from camera, else 2d
 #   extension = use shoulder↔wrist distance ratio (full extension => 180)
-elbow_angle_mode: max
+elbow_angle_mode: auto
 
 # Auto mode depth threshold (world z distance in meters). Higher = more 2d, lower = more 3d.
 elbow_auto_depth_m: 0.15

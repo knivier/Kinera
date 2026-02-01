@@ -126,7 +126,7 @@ else:
 model.eval()
 def rep_summary(rep):
     global model
-    angles = [p["angle"] for p in rep]  
+    angles = [p["angle"] for p in rep]
     times = [p["timestamp"] for p in rep]
 
     points = to_fixed_length_nd(angles, target_len=50)

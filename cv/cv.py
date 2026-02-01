@@ -180,6 +180,43 @@ drawing_utils = mp.tasks.vision.drawing_utils
 
 
 # ------------------ Helpers ------------------
+def _session_is_on():
+    """True if workout_id.json (repo root) has session == 'on' (JSONL format)."""
+    path = _CV_DIR.parent / "workout_id.json"
+    if not path.exists():
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            line = f.readline()
+            if not line.strip():
+                return False
+            data = json.loads(line)
+            return (data.get("session") or "").lower() == "on"
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
+_datahandler_module = None
+
+def _get_datahandler():
+    """Load datahandler once and cache."""
+    global _datahandler_module
+    if _datahandler_module is not None:
+        return _datahandler_module
+    try:
+        import importlib.util
+        dh_path = _CV_DIR / "datahandler.py"
+        if dh_path.exists():
+            spec = importlib.util.spec_from_file_location("cv_datahandler", dh_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _datahandler_module = mod
+            return mod
+    except Exception:
+        pass
+    return None
+
+
 def calculate_angle(a, b, c, use_3d=False):
     """Angle at vertex b (a–b–c) in degrees [0, 180], using atan2(norm(cross), dot).
     For 3D, use true 3D vectors; for 2D, project onto image plane (x, y only).
@@ -1050,6 +1087,16 @@ class PoseCore:
             # Batch write when buffer is full
             if len(self.log_buffer) >= self.log_batch_size:
                 self.flush_log_buffer()
+
+            # Datahandler (rep detection): run when session is "on" in workout_id.json
+            if angles and _session_is_on():
+                dh = _get_datahandler()
+                if dh is not None:
+                    try:
+                        ts_ms = now_ms - self.session_start_ms
+                        dh.run_workout(angles, ts_ms)
+                    except Exception:
+                        pass
 
         self.frame_count += 1
         return {

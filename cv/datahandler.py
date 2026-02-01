@@ -1,14 +1,16 @@
 import json
+from pathlib import Path
 import numpy as np
 from scipy.signal import find_peaks
 from scipy.interpolate import UnivariateSpline
-from matplotlib import pyplot as plt
-import torch
-import torch.nn as nn
-from RepTracker import SimpleRepDetector
 from time import sleep
 
-WORKOUT_TO_PARAMETERS = {"pushups": {"min_threshold": 120, "max_threshold": 145, "joints": ("left_elbow", "right_elbow")}}
+# Rep detection parameters per workout (joints and angle thresholds).
+WORKOUT_TO_PARAMETERS = {
+    "pushups": {"min_threshold": 120, "max_threshold": 145, "joints": ("left_elbow", "right_elbow")},
+    "squat": {"min_threshold": 80, "max_threshold": 170, "joints": ("left_knee", "right_knee")},
+    "bicep_curl": {"min_threshold": 30, "max_threshold": 150, "joints": ("left_elbow", "right_elbow")},
+}
 class SimpleRepDetector:
     WAITING_TOP = 0
     DESCENDING = 1
@@ -116,9 +118,14 @@ def workout_init():
         )
         
 detector = None
+_last_workout_id = None
+
 def run_workout(joint_angles, timestamp):
-    global reps, detector
-    if detector is None:
+    global reps, detector, _last_workout_id
+    data = _read_workout_state()
+    wid = data.get("workout_id") or "pushups"
+    if detector is None or _last_workout_id != wid:
+        _last_workout_id = wid
         workout_init()
     rep = detector.feed(joint_angles, timestamp)
     if rep is not None:
@@ -143,15 +150,12 @@ def store_reps():
             
     with open("reps_summary.json", "w") as f:
         json.dump([rep_summary(rep) for rep in reps], f, indent=4)
-while True:
-    
-    with open("workout_id.jsonl", "r") as f:
-        data = json.load(f)
-        if data.get("workout_id", "pushups") == "OFF":
-            print("Hey, workout is OFF. Sleeping...")
-            sleep(100)
-        else:
-            print("Workout is ON. Processing...")
-            store_reps()
+
+if __name__ == "__main__":
+    while True:
+        data = _read_workout_state()
+        if data.get("session", "off").lower() != "on":
             sleep(1)
-        
+            continue
+        store_reps()
+        sleep(1)

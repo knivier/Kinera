@@ -11,10 +11,11 @@ import torch.nn as nn
 # Rep detection parameters per workout (joints and angle thresholds).
 # Pushups: elbow at top (extended) ~150-180°, at bottom (bent) ~70-100°. We need top >= max, then bottom <= min, then top >= max again.
 TOLERANCE_DEGREES = 8
+TOLERANCE_TIME = 0.8
 WORKOUT_TO_PARAMETERS = {
-    "pushups": {"min_threshold": 100, "max_threshold": 150, "joints": ("left_elbow", "right_elbow"), "target_min_angle": 90},
-    "squat": {"min_threshold": 80, "max_threshold": 150, "joints": ("left_knee", "right_knee")},
-    "bicep_curl": {"min_threshold": 30, "max_threshold": 150, "joints": ("left_elbow", "right_elbow")},
+    "pushups": {"min_threshold": 100, "max_threshold": 150, "joints": ("left_elbow", "right_elbow"), "target_min_angle": 90, "target_max_angle": 160, "target_duration": 1.5},
+    "squat": {"min_threshold": 80, "max_threshold": 140, "joints": ("left_knee", "right_knee"), "target_min_angle": 70, "target_max_angle": 150, "target_duration": 2.0},
+    "bicep_curl": {"min_threshold": 30, "max_threshold": 150, "joints": ("left_elbow", "right_elbow"), "target_min_angle": 20, "target_max_angle": 160, "target_duration": 1},
 }
 class SimpleRepDetector:
     WAITING_TOP = 0
@@ -123,21 +124,44 @@ if _CROUCH_MODEL_PATH.exists():
 else:
     print(f"[Datahandler] quality model not found at {_CROUCH_MODEL_PATH}, rep_quality will be untrained", file=sys.stderr, flush=True)
 model.eval()
-def rep_summary(rep):
+def rep_summary(rep, workout_type="pushups"):
     global model
     angles = [p["angle"] for p in rep]
     times = [p["timestamp"] for p in rep]
 
-    # Resample angle series to 50 points (1D); model expects (batch, 50)
-    points_1d = to_fixed_length(angles, target_len=50)
-    pt_min, pt_max = np.min(points_1d), np.max(points_1d)
-    points_norm = (points_1d - pt_min) / (pt_max - pt_min) if pt_max > pt_min else np.zeros_like(points_1d)
+    points = to_fixed_length_nd(angles, target_len=50)
+    points_norm = (points - np.min(points)) / \
+                       (np.max(points) - np.min(points))
     rep_quality = model(torch.tensor(points_norm, dtype=torch.float32).unsqueeze(0)).item()
     min_angle = min(angles)
     max_angle = max(angles)
     duration = (times[-1] - times[0]) / 1000.0  # seconds
     range_of_motion = max_angle - min_angle
-
+    msg =""
+    if WORKOUT_TO_PARAMETERS.get(workout_type):
+        params = WORKOUT_TO_PARAMETERS[workout_type]
+        target_min = params.get("target_min_angle", 0)
+        target_max = params.get("target_max_angle", 180)
+        if abs(min_angle - target_min) < TOLERANCE_DEGREES:
+            msg += "Good depth.\n"
+        elif min_angle < target_min - TOLERANCE_DEGREES:
+            msg += "TOO FAR.\n"
+        else:
+            msg += "Not low enough.\n"
+        if abs(max_angle - target_max) < TOLERANCE_DEGREES:
+            msg += "Good extension.\n"
+        elif max_angle < target_max - TOLERANCE_DEGREES:
+            msg += "Not fully extended.\n"
+        else:
+            msg += "Overextended.\n"
+        target_duration = params.get("target_duration", 1.0)
+        if abs(duration - target_duration) < TOLERANCE_TIME:
+            msg += " Good tempo.\n"
+        elif duration < target_duration - TOLERANCE_TIME:
+            msg += " Too fast.\n"
+        else:
+            msg += " Too slow.\n"
+        
     return {
         "min_angle": min_angle,
         "max_angle": max_angle,
@@ -145,6 +169,7 @@ def rep_summary(rep):
         "range_of_motion": range_of_motion,
         "num_frames": len(rep),
         "quality_score": rep_quality,
+        "feedback": msg.strip(),
     }
 
 reps = []
@@ -218,7 +243,7 @@ def run_workout(joint_angles, timestamp):
         print(f"[Datahandler] {joint_label} avg={a:.1f}° state={state_name} (min={detector.min_threshold}, max={detector.max_threshold})", file=sys.stderr, flush=True)
     if rep is not None:
         reps.append(rep)
-        summary = rep_summary(rep)
+        summary = rep_summary(rep, workout_type=wid)
         print(f"[Datahandler] Rep detected: {summary}", file=sys.stderr, flush=True)
         # Log rep to disk (JSONL) so live runs persist reps
         try:
@@ -247,7 +272,7 @@ def store_reps():
                 readLines += 1
             
     with open("reps_summary.json", "w") as f:
-        json.dump([rep_summary(rep) for rep in reps], f, indent=4)
+        json.dump([rep_summary(rep, workout_type=_last_workout_id) for rep in reps], f, indent=4)
 
 if __name__ == "__main__":
     while True:

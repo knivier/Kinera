@@ -1,8 +1,6 @@
 # Model testing
 import json
 import numpy as np
-from scipy.signal import find_peaks
-from scipy.interpolate import UnivariateSpline
 from matplotlib import pyplot as plt
 import torch
 import torch.nn as nn
@@ -11,7 +9,7 @@ from RepTracker import SimpleRepDetector
 
 BASE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BASE_DIR.parent
-JSONL_FILE = REPO_ROOT / "training-data" / "pushups" / "proman.jsonl"
+JSONL_FILE = "./lms/cv/reps_log.jsonl"
 OUTPUT_FILE = BASE_DIR / "dataset.jsonl"  # where we append all reps
 
 
@@ -31,24 +29,24 @@ detector = SimpleRepDetector(
 
 rep_indexes = []
 
-def rep_summary(rep):
-    angles = [p["angle"] for p in rep]
-    times = [p["timestamp"] for p in rep]
+# def rep_summary(rep):
+#     angles = [p["angle"] for p in rep]
+#     times = [p["timestamp"] for p in rep]
 
-    min_angle = min(angles)
-    max_angle = max(angles)
-    duration = (times[-1] - times[0]) / 1000.0  # seconds
-    range_of_motion = max_angle - min_angle
+#     min_angle = min(angles)
+#     max_angle = max(angles)
+#     duration = (times[-1] - times[0]) / 1000.0  # seconds
+#     range_of_motion = max_angle - min_angle
 
-    return {
-        "min_angle": min_angle,
-        "max_angle": max_angle,
-        "duration": duration,
-        "range_of_motion": range_of_motion,
-        "num_frames": len(rep)
-    }
+#     return {
+#         "min_angle": min_angle,
+#         "max_angle": max_angle,
+#         "duration": duration,
+#         "range_of_motion": range_of_motion,
+#         "num_frames": len(rep)
+#     }
 
-reps = []
+# reps = []
 with open(JSONL_FILE, "r") as f:
     for line in f:
         line = line.strip()
@@ -60,26 +58,14 @@ with open(JSONL_FILE, "r") as f:
             obj = json.loads(line)
         except:
             continue
+        print(obj)
+        inputThing = obj['summary']['input']
+        print(inputThing)
+        plt.plot(range(len(inputThing)), inputThing)
+        plt.show()
+        rateScore = input("Rate the rep (0-1): ")
+        print("{" + f'"input": {json.dumps(inputThing)}, "output": {rateScore}' + "},")
         
-        left_elbow = obj.get("angles", {}).get("left_elbow")
-        right_elbow = obj.get("angles", {}).get("right_elbow")
-        if left_elbow is None or right_elbow is None:
-            continue
-
-        value = (left_elbow + right_elbow) / 2.0
-
-        # ✅ append FIRST
-        signal.append(value)
-        time.append(obj.get("timestamp_utc", len(time)))
-
-        # print(f"Feeding angle {value} at time {obj.get('timestamp_utc')}")
-        # feed AFTER
-        rep = detector.feed(obj["angles"], obj["timestamp_utc"])
-        if rep is not None:
-            summary = rep_summary(rep)
-            print("Rep detected:", summary)
-            reps.append(rep)
-            rep_indexes.append(len(signal)  + 1)  # index of the bottom point
 
 signal = np.array(signal)
 time = np.array(time)

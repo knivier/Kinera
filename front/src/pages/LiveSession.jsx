@@ -1,12 +1,19 @@
-import { Box, Button, Chip, Stack, Typography } from "@mui/material";
+import { Box, Button, Chip, Stack, Typography, Fade, Grow, Slide, Paper, Grid } from "@mui/material";
 import { useState, useRef, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import StopIcon from "@mui/icons-material/Stop";
+import FitnessCenterIcon from "@mui/icons-material/FitnessCenter";
+import TimerIcon from "@mui/icons-material/Timer";
+import AddIcon from "@mui/icons-material/Add";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import FeedbackIcon from "@mui/icons-material/Feedback";
 
 // Metrics config per workout (title + exercise-specific metric placeholders)
 const WORKOUT_METRICS = {
-  squat: { title: "Squat", extra: "Depth: — · Knees: —" },
-  pushup: { title: "Push-up", extra: "Chest touch: — · Lockout: —" },
-  bicep_curl: { title: "Bicep curl", extra: "ROM: — · Elbow drift: —" },
+  squat: { title: "Squat", extra: "Depth: — · Knees: —", gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" },
+  pushup: { title: "Push-up", extra: "Chest touch: — · Lockout: —", gradient: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" },
+  bicep_curl: { title: "Bicep curl", extra: "ROM: — · Elbow drift: —", gradient: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" },
 };
 
 /**
@@ -131,8 +138,11 @@ export default function LiveSession() {
 
   /** User starts next set after resting; CV will report reps for this set. */
   function startNextSet() {
+    const now = Date.now();
     setBetweenSetsMode(false);
-    setStartRef.current = Date.now();
+    setStartRef.current = now;
+    setLastRestAt(now);
+    setTimeSinceRest(0);
   }
 
   function handleRest() {
@@ -191,237 +201,634 @@ export default function LiveSession() {
   const betweenSets = isRunning && betweenSetsMode;
 
   return (
-    <Stack spacing={3}>
-      <Typography variant="h4">Live Session</Typography>
+    <Box sx={{ maxWidth: 1400, mx: "auto" }}>
+      <Fade in timeout={300}>
+        <Box sx={{ mb: 4 }}>
+          <Typography 
+            variant="h4" 
+            sx={{ 
+              fontWeight: 700,
+              mb: 1,
+              background: workoutConfig?.gradient || "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}
+          >
+            Live Session
+          </Typography>
+          {workoutConfig && (
+            <Typography variant="body1" sx={{ color: "#6b7280" }}>
+              {workoutConfig.title} Training
+            </Typography>
+          )}
+        </Box>
+      </Fade>
 
       {/* Summary shown after "End Workout"; Done dismisses and resets for next workout */}
       {showSummary && (
-        <Box
-          sx={{
-            p: 3,
-            borderRadius: 2,
-            bgcolor: "primary.50",
-            border: "1px solid",
-            borderColor: "primary.200",
-          }}
-        >
-          <Typography variant="h6" gutterBottom>
-            Workout Summary
-          </Typography>
-          {workoutConfig && (
-            <Typography variant="body2" color="text.secondary" gutterBottom>
-              {workoutConfig.title}
-            </Typography>
-          )}
-          <Stack spacing={0.5} sx={{ mb: 2 }}>
-            {completedSets.map((set, i) => (
-              <Typography key={i} variant="body2">
-                Set {i + 1}: <strong>{set.reps}</strong> reps
-                {set.avgSec != null && ` · avg ${set.avgSec}s/rep`}
-              </Typography>
-            ))}
-          </Stack>
-          <Typography variant="body2" fontWeight={600}>
-            Total reps: {totalReps}
-          </Typography>
-          <Button
-            variant="contained"
-            onClick={() => {
-              setShowSummary(false);
-              setCompletedSets([]);
-              setLastSetMetrics(null);
-              setRestTimestamps([]);
-              setLastRestAt(null);
+        <Grow in timeout={500}>
+          <Paper
+            elevation={0}
+            sx={{
+              p: 4,
+              borderRadius: 4,
+              background: "#ffffff",
+              border: "1px solid #e5e7eb",
+              position: "relative",
+              overflow: "hidden",
+              "&::before": {
+                content: '""',
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 6,
+                background: workoutConfig?.gradient || "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+              },
             }}
-            sx={{ mt: 2 }}
           >
-            Done
-          </Button>
-        </Box>
+            <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+              <Box
+                sx={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 3,
+                  background: workoutConfig?.gradient || "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <CheckCircleIcon sx={{ fontSize: 32, color: "#ffffff" }} />
+              </Box>
+              <Box>
+                <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  Workout Complete!
+                </Typography>
+                {workoutConfig && (
+                  <Typography variant="body2" color="text.secondary">
+                    {workoutConfig.title}
+                  </Typography>
+                )}
+              </Box>
+            </Stack>
+
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+              <Grid item xs={6}>
+                <Box sx={{ p: 2, borderRadius: 2, bgcolor: "#f9fafb" }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+                    Total Sets
+                  </Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 700 }}>
+                    {completedSets.length}
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={6}>
+                <Box sx={{ p: 2, borderRadius: 2, bgcolor: "#f9fafb" }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+                    Total Reps
+                  </Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 700 }}>
+                    {totalReps}
+                  </Typography>
+                </Box>
+              </Grid>
+            </Grid>
+
+            <Stack spacing={1.5} sx={{ mb: 3 }}>
+              {completedSets.map((set, i) => (
+                <Fade in key={i} timeout={300 + i * 100}>
+                  <Box
+                    sx={{
+                      p: 2,
+                      borderRadius: 2,
+                      border: "1px solid #e5e7eb",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      Set {i + 1}
+                    </Typography>
+                    <Stack direction="row" spacing={3}>
+                      <Typography variant="body2">
+                        <strong>{set.reps}</strong> reps
+                      </Typography>
+                      {set.avgSec != null && (
+                        <Typography variant="body2" color="text.secondary">
+                          {set.avgSec}s/rep avg
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Box>
+                </Fade>
+              ))}
+            </Stack>
+
+            <Button
+              fullWidth
+              variant="contained"
+              size="large"
+              onClick={() => {
+                setShowSummary(false);
+                setCompletedSets([]);
+                setLastSetMetrics(null);
+                setRestTimestamps([]);
+                setLastRestAt(null);
+              }}
+              sx={{
+                py: 1.5,
+                borderRadius: 2,
+                background: workoutConfig?.gradient || "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                textTransform: "none",
+                fontSize: "1rem",
+                fontWeight: 600,
+                "&:hover": {
+                  opacity: 0.9,
+                },
+              }}
+            >
+              Done
+            </Button>
+          </Paper>
+        </Grow>
       )}
 
       {!showSummary && !workoutId && (
-        <Box
-          sx={{
-            p: 3,
-            borderRadius: 2,
-            bgcolor: "grey.100",
-            border: "1px solid",
-            borderColor: "grey.300",
-          }}
-        >
-          <Typography variant="body1" color="text.secondary" gutterBottom>
-            Select a workout from the Workouts tab to see metrics here.
-          </Typography>
-          <Button variant="contained" onClick={() => navigate("/")}>
-            Choose workout
-          </Button>
-        </Box>
+        <Grow in timeout={400}>
+          <Paper
+            elevation={0}
+            sx={{
+              p: 6,
+              borderRadius: 4,
+              textAlign: "center",
+              background: "#ffffff",
+              border: "1px solid #e5e7eb",
+            }}
+          >
+            <FitnessCenterIcon sx={{ fontSize: 64, color: "#d1d5db", mb: 2 }} />
+            <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
+              No Workout Selected
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Choose a workout to start your training session
+            </Typography>
+            <Button 
+              variant="contained" 
+              size="large"
+              onClick={() => navigate("/")}
+              sx={{
+                px: 4,
+                py: 1.5,
+                borderRadius: 2,
+                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                textTransform: "none",
+                fontSize: "1rem",
+                fontWeight: 600,
+              }}
+            >
+              Choose Workout
+            </Button>
+          </Paper>
+        </Grow>
       )}
 
       {!showSummary && workoutId && (
         <>
-      <Box
-        sx={{
-          width: "100%",
-          aspectRatio: "16 / 9",
-          maxWidth: 720,
-          borderRadius: cornerRadius,
-          bgcolor: "grey.900",
-          position: "relative",
-          overflow: "hidden",
-        }}
-      >
-        {stream && (
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            style={{
-              position: "absolute",
-              inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              borderRadius: cornerRadius,
-            }}
-          />
-        )}
-        {!stream && (
-          <>
-            <Box
-              sx={{
-                position: "absolute",
-                inset: 24,
-                borderRadius: cornerRadius,
-                border: "2px dashed",
-                borderColor: "grey.700",
-              }}
-            />
-            <Box
-              sx={{
+      {/* Camera Feed - Full Width */}
+      <Grow in timeout={400}>
+        <Paper
+          elevation={0}
+          sx={{
+            width: "100%",
+            maxWidth: 960,
+            mx: "auto",
+            borderRadius: 4,
+            overflow: "hidden",
+            background: "#1a1a1a",
+            position: "relative",
+            aspectRatio: "16 / 9",
+            border: "1px solid #2d2d2d",
+          }}
+        >
+          {stream && (
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{
                 position: "absolute",
                 inset: 0,
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+              }}
+            />
+          )}
+          {!stream && (
+            <>
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: 24,
+                  borderRadius: 3,
+                  border: "2px dashed #3d3d3d",
+                }}
+              />
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexDirection: "column",
+                  color: "#9ca3af",
+                  gap: 1,
+                }}
+              >
+                <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                  {error ? error : "Camera Feed"}
+                </Typography>
+                <Typography variant="body2">Skeleton overlay will appear here</Typography>
+              </Box>
+            </>
+          )}
+          <Box sx={{ position: "absolute", left: 20, top: 20 }}>
+            <Chip
+              icon={stream ? <CheckCircleIcon /> : undefined}
+              label={stream ? "Live" : "Camera Off"}
+              sx={{
+                background: stream 
+                  ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+                  : "#374151",
+                color: "#ffffff",
+                fontWeight: 600,
+                px: 1,
+              }}
+            />
+          </Box>
+        </Paper>
+      </Grow>
+
+      {/* Metrics Grid */}
+      <Grid container spacing={2} sx={{ mt: 2 }}>
+        <Grid item xs={12} md={6} lg={4}>
+          {/* Current Set Metrics */}
+            <Grow in timeout={500}>
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2.5,
+                  borderRadius: 3,
+                  background: "#ffffff",
+                  border: "1px solid #e5e7eb",
+                  position: "relative",
+                  overflow: "hidden",
+                  height: "100%",
+                  "&::before": {
+                    content: '""',
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 4,
+                    background: workoutConfig?.gradient,
+                  },
+                }}
+              >
+                <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
+                  <Box
+                    sx={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 2,
+                      background: workoutConfig?.gradient,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <FitnessCenterIcon sx={{ fontSize: 18, color: "#ffffff" }} />
+                  </Box>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                    {workoutConfig?.title}
+                  </Typography>
+                </Stack>
+
+                {isRunning && (
+                  <Fade in timeout={300}>
+                    <Box
+                      sx={{
+                        p: 2,
+                        borderRadius: 2,
+                        background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)",
+                        mb: 1.5,
+                        textAlign: "center",
+                      }}
+                    >
+                      <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+                        Current Set
+                      </Typography>
+                      <Typography variant="h2" sx={{ fontWeight: 700, color: "#059669" }}>
+                        {repTimes.length}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        reps
+                      </Typography>
+                    </Box>
+                  </Fade>
+                )}
+
+                {lastSetMetrics != null && (
+                  <Fade in timeout={300}>
+                    <Stack spacing={1} sx={{ mb: 1.5 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, fontSize: "0.7rem" }}>
+                        LAST SET
+                      </Typography>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.85rem" }}>
+                          Total Reps
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {lastSetMetrics.reps}
+                        </Typography>
+                      </Box>
+                      {lastSetMetrics.avgSec != null && (
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.85rem" }}>
+                            Avg Time
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            {lastSetMetrics.avgSec}s
+                          </Typography>
+                        </Box>
+                      )}
+                    </Stack>
+                  </Fade>
+                )}
+
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: "block", fontSize: "0.7rem" }}>
+                  {workoutConfig?.extra}
+                </Typography>
+
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={emitRepEvent}
+                  disabled={!isRunning}
+                  sx={{
+                    py: 1.2,
+                    borderRadius: 2,
+                    borderColor: "#e5e7eb",
+                    textTransform: "none",
+                    fontWeight: 600,
+                    fontSize: "0.9rem",
+                    "&:hover": {
+                      borderColor: "#9ca3af",
+                      background: "#f9fafb",
+                    },
+                    "&:disabled": {
+                      borderColor: "#e5e7eb",
+                      color: "#9ca3af",
+                    },
+                  }}
+                >
+                  Add Rep
+                </Button>
+              </Paper>
+            </Grow>
+
+        </Grid>
+
+        <Grid item xs={12} md={6} lg={4}>
+          {/* Rest Timer */}
+          <Grow in timeout={600}>
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2.5,
+                  borderRadius: 3,
+                  background: betweenSetsMode 
+                    ? "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)"
+                    : "#ffffff",
+                  border: "1px solid #e5e7eb",
+                  transition: "all 0.3s ease",
+                  height: "100%",
+                }}
+              >
+                <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
+                  <Box
+                    sx={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 2,
+                      background: betweenSetsMode
+                        ? "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
+                        : "#f3f4f6",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "all 0.3s ease",
+                    }}
+                  >
+                    <TimerIcon sx={{ fontSize: 18, color: betweenSetsMode ? "#ffffff" : "#6b7280" }} />
+                  </Box>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                    {betweenSetsMode ? "Rest Time" : "Active"}
+                  </Typography>
+                </Stack>
+
+                <Box
+                  sx={{
+                    p: 2,
+                    borderRadius: 2,
+                    background: "#ffffff",
+                    textAlign: "center",
+                    mb: 1.5,
+                  }}
+                >
+                  <Typography variant="h2" sx={{ fontWeight: 700, color: betweenSetsMode ? "#d97706" : "#6b7280" }}>
+                    {timeSinceRest}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    seconds
+                  </Typography>
+                </Box>
+
+                {avgTimeBetweenRest != null && (
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: "block", textAlign: "center", fontSize: "0.7rem" }}>
+                    Avg: {avgTimeBetweenRest.toFixed(1)}s
+                  </Typography>
+                )}
+
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  onClick={handleRest}
+                  disabled={!isRunning}
+                  sx={{
+                    py: 1.2,
+                    borderRadius: 2,
+                    borderColor: "#e5e7eb",
+                    textTransform: "none",
+                    fontWeight: 600,
+                    fontSize: "0.9rem",
+                    "&:hover": {
+                      borderColor: "#9ca3af",
+                      background: "#f9fafb",
+                    },
+                  }}
+                >
+                  Mark Rest
+                </Button>
+              </Paper>
+            </Grow>
+        </Grid>
+
+        <Grid item xs={12} md={12} lg={4}>
+          {/* Feedback Section */}
+          <Grow in timeout={700}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2.5,
+            borderRadius: 3,
+            background: "#ffffff",
+            border: "1px solid #e5e7eb",
+            height: "100%",
+          }}
+        >
+          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 2,
+                background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                flexDirection: "column",
-                color: "grey.500",
-                gap: 0.5,
               }}
             >
-              <Typography variant="subtitle1">
-                {error ? error : "Camera feed"}
-              </Typography>
-              <Typography variant="caption">Skeleton overlay</Typography>
+              <FeedbackIcon sx={{ fontSize: 18, color: "#ffffff" }} />
             </Box>
-          </>
-        )}
-        <Box sx={{ position: "absolute", left: 24, top: 24 }}>
-          <Chip
-            label={stream ? "Locked on" : "Camera off"}
-            color={stream ? "primary" : "default"}
-            size="small"
-          />
-        </Box>
-      </Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+              Form Feedback
+            </Typography>
+          </Stack>
 
-      {/* Metrics for the selected workout only. Current set = live (CV or + Rep); last set = backend after "Stop current set". */}
-      {workoutConfig && (
-        <Box
-          sx={{
-            p: 2,
-            borderRadius: 2,
-            bgcolor: "grey.100",
-            border: "1px solid",
-            borderColor: "grey.300",
-            maxWidth: 400,
+          <Box
+            sx={{
+              p: 2,
+              borderRadius: 2,
+              background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)",
+              border: "1px solid #86efac",
+            }}
+          >
+            <Typography variant="body2" sx={{ color: "#065f46", fontWeight: 500 }}>
+              Good depth. Keep knees aligned.
+            </Typography>
+          </Box>
+        </Paper>
+      </Grow>
+        </Grid>
+      </Grid>
+
+      {/* Action Buttons */}
+      <Fade in timeout={800}>
+        <Stack 
+          direction="row" 
+          spacing={2} 
+          sx={{ 
+            mt: 3, 
+            justifyContent: "center",
+            flexWrap: "wrap",
+            gap: 2,
           }}
         >
-          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-            {workoutConfig.title}
-          </Typography>
-          <Stack spacing={0.5}>
-            {isRunning && (
-              <Typography variant="body2">
-                Current set: <strong>{repTimes.length}</strong> reps
-              </Typography>
-            )}
-            {lastSetMetrics != null && (
-              <>
-                <Typography variant="body2" color="text.secondary">
-                  Last set: <strong>{lastSetMetrics.reps}</strong> reps
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Time for last rep: {lastSetMetrics.lastRepSec != null ? `${lastSetMetrics.lastRepSec}s` : "—"}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Avg time/rep: {lastSetMetrics.avgSec != null ? `${lastSetMetrics.avgSec}s` : "—"}
-                </Typography>
-              </>
-            )}
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-              {workoutConfig.extra}
-            </Typography>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={emitRepEvent}
-              disabled={!isRunning}
-            >
-              + Rep
-            </Button>
-          </Stack>
-        </Box>
-      )}
-
-      {/* Rest: when between sets show "Rest time"; when in a set show "Time since last rest" */}
-      <Stack spacing={0.5}>
-        <Typography variant="h6">Rest</Typography>
-        <Typography variant="body2" color="text.secondary">
-          {betweenSetsMode ? "Rest time" : "Time since last rest"}: {timeSinceRest}s
-        </Typography>
-        {avgTimeBetweenRest != null && (
-          <Typography variant="body2" color="text.secondary">
-            Avg time between rest: {avgTimeBetweenRest.toFixed(1)}s
-          </Typography>
-        )}
-        <Button variant="outlined" size="small" onClick={handleRest} disabled={!isRunning}>
-          Mark rest
-        </Button>
-      </Stack>
-
-      {/* Feedback: later use structured data { severity, message, joint } for color, animation, per-joint explanation */}
-      <Stack spacing={1}>
-        <Typography variant="h6">Feedback</Typography>
-        <Typography variant="body1" color="text.secondary">
-          Good depth. Keep knees aligned.
-        </Typography>
-      </Stack>
-
-      <Stack direction="row" spacing={2} flexWrap="wrap">
-        <Button
-          variant={isRunning ? "outlined" : "contained"}
-          onClick={handleToggle}
-        >
-          {isRunning ? "End Workout" : "Start Workout"}
-        </Button>
-        {betweenSets && (
-          <Button variant="contained" onClick={startNextSet}>
-            Start next set
+          <Button
+            variant={isRunning ? "outlined" : "contained"}
+            size="large"
+            startIcon={isRunning ? <StopIcon /> : <PlayArrowIcon />}
+            onClick={handleToggle}
+            sx={{
+              px: 3.5,
+              py: 1.2,
+              borderRadius: 2,
+              textTransform: "none",
+              fontWeight: 600,
+              fontSize: "0.95rem",
+              minWidth: 160,
+              ...(!isRunning && {
+                background: workoutConfig?.gradient || "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+              }),
+              ...(isRunning && {
+                borderColor: "#ef4444",
+                color: "#ef4444",
+                "&:hover": {
+                  borderColor: "#dc2626",
+                  background: "#fef2f2",
+                },
+              }),
+            }}
+          >
+            {isRunning ? "End Workout" : "Start Workout"}
           </Button>
-        )}
-        <Button
-          variant="outlined"
-          onClick={stopCurrentSet}
-          disabled={!isRunning || repTimes.length === 0}
-        >
-          Stop current set
-        </Button>
-      </Stack>
+
+          {betweenSets && (
+            <Slide in direction="right" timeout={300}>
+              <Button 
+                variant="contained" 
+                size="large"
+                onClick={startNextSet}
+                sx={{
+                  px: 3.5,
+                  py: 1.2,
+                  borderRadius: 2,
+                  textTransform: "none",
+                  fontWeight: 600,
+                  fontSize: "0.95rem",
+                  minWidth: 160,
+                  background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                }}
+              >
+                Start Next Set
+              </Button>
+            </Slide>
+          )}
+
+          <Button
+            variant="outlined"
+            size="large"
+            onClick={stopCurrentSet}
+            disabled={!isRunning || repTimes.length === 0}
+            sx={{
+              px: 3.5,
+              py: 1.2,
+              borderRadius: 2,
+              textTransform: "none",
+              fontWeight: 600,
+              fontSize: "0.95rem",
+              minWidth: 160,
+              borderColor: "#e5e7eb",
+              "&:hover": {
+                borderColor: "#9ca3af",
+                background: "#f9fafb",
+              },
+            }}
+          >
+            Stop Current Set
+          </Button>
+        </Stack>
+      </Fade>
         </>
       )}
-    </Stack>
+    </Box>
   );
 }

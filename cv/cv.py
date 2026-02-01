@@ -533,6 +533,170 @@ class PoseCore:
         
         angle_l_knee = angle_l_knee_3d if angle_l_knee_3d is not None else angle_l_knee_2d
 
+        # Shoulder angles: torso-shoulder-elbow (important for overhead press, lateral raises)
+        angle_r_shoulder_3d = angle_r_shoulder_2d = None
+        if (lm_world[PoseLandmark.RIGHT_HIP].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.RIGHT_SHOULDER].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.RIGHT_ELBOW].visibility > VISIBILITY_THRESHOLD):
+            hip_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_HIP])
+            shoulder_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_SHOULDER])
+            elbow_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_ELBOW])
+            angle_r_shoulder_3d = calculate_angle(hip_r, shoulder_r, elbow_r, use_3d=True)
+        
+        if (
+            (lm[PoseLandmark.RIGHT_HIP].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.RIGHT_SHOULDER].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.RIGHT_ELBOW].visibility or 0) > VISIBILITY_THRESHOLD
+        ):
+            hip_r_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_HIP])
+            shoulder_r_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_SHOULDER])
+            elbow_r_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_ELBOW])
+            angle_r_shoulder_2d = calculate_angle(hip_r_2d, shoulder_r_2d, elbow_r_2d, use_3d=False)
+        
+        angle_r_shoulder = angle_r_shoulder_3d if angle_r_shoulder_3d is not None else angle_r_shoulder_2d
+
+        angle_l_shoulder_3d = angle_l_shoulder_2d = None
+        if (lm_world[PoseLandmark.LEFT_HIP].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.LEFT_SHOULDER].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.LEFT_ELBOW].visibility > VISIBILITY_THRESHOLD):
+            hip_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_HIP])
+            shoulder_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_SHOULDER])
+            elbow_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_ELBOW])
+            angle_l_shoulder_3d = calculate_angle(hip_l, shoulder_l, elbow_l, use_3d=True)
+        
+        if (
+            (lm[PoseLandmark.LEFT_HIP].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.LEFT_SHOULDER].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.LEFT_ELBOW].visibility or 0) > VISIBILITY_THRESHOLD
+        ):
+            hip_l_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_HIP])
+            shoulder_l_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_SHOULDER])
+            elbow_l_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_ELBOW])
+            angle_l_shoulder_2d = calculate_angle(hip_l_2d, shoulder_l_2d, elbow_l_2d, use_3d=False)
+        
+        angle_l_shoulder = angle_l_shoulder_3d if angle_l_shoulder_3d is not None else angle_l_shoulder_2d
+
+        # Hip angles: shoulder-hip-knee (important for squats, lunges)
+        angle_r_hip_3d = angle_r_hip_2d = None
+        if (lm_world[PoseLandmark.RIGHT_SHOULDER].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.RIGHT_HIP].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.RIGHT_KNEE].visibility > VISIBILITY_THRESHOLD):
+            shoulder_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_SHOULDER])
+            hip_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_HIP])
+            knee_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_KNEE])
+            angle_r_hip_3d = calculate_angle(shoulder_r, hip_r, knee_r, use_3d=True)
+        
+        if (
+            (lm[PoseLandmark.RIGHT_SHOULDER].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.RIGHT_HIP].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.RIGHT_KNEE].visibility or 0) > VISIBILITY_THRESHOLD
+        ):
+            shoulder_r_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_SHOULDER])
+            hip_r_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_HIP])
+            knee_r_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_KNEE])
+            angle_r_hip_2d = calculate_angle(shoulder_r_2d, hip_r_2d, knee_r_2d, use_3d=False)
+        
+        angle_r_hip = angle_r_hip_3d if angle_r_hip_3d is not None else angle_r_hip_2d
+
+        angle_l_hip_3d = angle_l_hip_2d = None
+        if (lm_world[PoseLandmark.LEFT_SHOULDER].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.LEFT_HIP].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.LEFT_KNEE].visibility > VISIBILITY_THRESHOLD):
+            shoulder_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_SHOULDER])
+            hip_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_HIP])
+            knee_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_KNEE])
+            angle_l_hip_3d = calculate_angle(shoulder_l, hip_l, knee_l, use_3d=True)
+        
+        if (
+            (lm[PoseLandmark.LEFT_SHOULDER].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.LEFT_HIP].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.LEFT_KNEE].visibility or 0) > VISIBILITY_THRESHOLD
+        ):
+            shoulder_l_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_SHOULDER])
+            hip_l_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_HIP])
+            knee_l_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_KNEE])
+            angle_l_hip_2d = calculate_angle(shoulder_l_2d, hip_l_2d, knee_l_2d, use_3d=False)
+        
+        angle_l_hip = angle_l_hip_3d if angle_l_hip_3d is not None else angle_l_hip_2d
+
+        # Ankle angles: knee-ankle-foot (important for calf raises, plantar flexion)
+        angle_r_ankle_3d = angle_r_ankle_2d = None
+        if (lm_world[PoseLandmark.RIGHT_KNEE].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.RIGHT_ANKLE].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.RIGHT_FOOT_INDEX].visibility > VISIBILITY_THRESHOLD):
+            knee_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_KNEE])
+            ankle_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_ANKLE])
+            foot_r = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_FOOT_INDEX])
+            angle_r_ankle_3d = calculate_angle(knee_r, ankle_r, foot_r, use_3d=True)
+        
+        if (
+            (lm[PoseLandmark.RIGHT_KNEE].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.RIGHT_ANKLE].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.RIGHT_FOOT_INDEX].visibility or 0) > VISIBILITY_THRESHOLD
+        ):
+            knee_r_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_KNEE])
+            ankle_r_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_ANKLE])
+            foot_r_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_FOOT_INDEX])
+            angle_r_ankle_2d = calculate_angle(knee_r_2d, ankle_r_2d, foot_r_2d, use_3d=False)
+        
+        angle_r_ankle = angle_r_ankle_3d if angle_r_ankle_3d is not None else angle_r_ankle_2d
+
+        angle_l_ankle_3d = angle_l_ankle_2d = None
+        if (lm_world[PoseLandmark.LEFT_KNEE].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.LEFT_ANKLE].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.LEFT_FOOT_INDEX].visibility > VISIBILITY_THRESHOLD):
+            knee_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_KNEE])
+            ankle_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_ANKLE])
+            foot_l = landmark_to_xyz(lm_world[PoseLandmark.LEFT_FOOT_INDEX])
+            angle_l_ankle_3d = calculate_angle(knee_l, ankle_l, foot_l, use_3d=True)
+        
+        if (
+            (lm[PoseLandmark.LEFT_KNEE].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.LEFT_ANKLE].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.LEFT_FOOT_INDEX].visibility or 0) > VISIBILITY_THRESHOLD
+        ):
+            knee_l_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_KNEE])
+            ankle_l_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_ANKLE])
+            foot_l_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_FOOT_INDEX])
+            angle_l_ankle_2d = calculate_angle(knee_l_2d, ankle_l_2d, foot_l_2d, use_3d=False)
+        
+        angle_l_ankle = angle_l_ankle_3d if angle_l_ankle_3d is not None else angle_l_ankle_2d
+
+        # Torso/spine angle: hip-shoulder-vertical (important for posture, deadlifts, squats)
+        # Calculate torso lean using average of left/right shoulders and hips
+        angle_torso_3d = angle_torso_2d = None
+        if (lm_world[PoseLandmark.LEFT_SHOULDER].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.RIGHT_SHOULDER].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.LEFT_HIP].visibility > VISIBILITY_THRESHOLD and
+            lm_world[PoseLandmark.RIGHT_HIP].visibility > VISIBILITY_THRESHOLD):
+            # Average shoulder and hip positions for center-line
+            ls = landmark_to_xyz(lm_world[PoseLandmark.LEFT_SHOULDER])
+            rs = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_SHOULDER])
+            lh = landmark_to_xyz(lm_world[PoseLandmark.LEFT_HIP])
+            rh = landmark_to_xyz(lm_world[PoseLandmark.RIGHT_HIP])
+            shoulder_center = [(ls[i] + rs[i]) / 2 for i in range(3)]
+            hip_center = [(lh[i] + rh[i]) / 2 for i in range(3)]
+            # Vertical reference point (straight up from hip)
+            vertical_ref = [hip_center[0], hip_center[1] - 1.0, hip_center[2]]
+            angle_torso_3d = calculate_angle(vertical_ref, hip_center, shoulder_center, use_3d=True)
+        
+        if (
+            (lm[PoseLandmark.LEFT_SHOULDER].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.RIGHT_SHOULDER].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.LEFT_HIP].visibility or 0) > VISIBILITY_THRESHOLD
+            and (lm[PoseLandmark.RIGHT_HIP].visibility or 0) > VISIBILITY_THRESHOLD
+        ):
+            ls_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_SHOULDER])
+            rs_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_SHOULDER])
+            lh_2d = landmark_to_norm_xy(lm[PoseLandmark.LEFT_HIP])
+            rh_2d = landmark_to_norm_xy(lm[PoseLandmark.RIGHT_HIP])
+            shoulder_center_2d = [(ls_2d[i] + rs_2d[i]) / 2 for i in range(2)]
+            hip_center_2d = [(lh_2d[i] + rh_2d[i]) / 2 for i in range(2)]
+            vertical_ref_2d = [hip_center_2d[0], hip_center_2d[1] - 1.0]
+            angle_torso_2d = calculate_angle(vertical_ref_2d, hip_center_2d, shoulder_center_2d, use_3d=False)
+        
+        angle_torso = angle_torso_3d if angle_torso_3d is not None else angle_torso_2d
+
         # Color limbs by target range: green = in range, red = out
         limb_connections = {
             (12, 14): "right_elbow", (14, 16): "right_elbow",
@@ -602,6 +766,13 @@ class PoseCore:
             "left_elbow": angle_l_elbow,
             "right_knee": angle_r_knee,
             "left_knee": angle_l_knee,
+            "right_shoulder": angle_r_shoulder,
+            "left_shoulder": angle_l_shoulder,
+            "right_hip": angle_r_hip,
+            "left_hip": angle_l_hip,
+            "right_ankle": angle_r_ankle,
+            "left_ankle": angle_l_ankle,
+            "torso": angle_torso,
         }
         return text_lines, connection_spec, angles
 
@@ -716,8 +887,8 @@ class PoseCore:
             "timestamp_ms": timestamp_ms,
             "timestamp_utc": now_ms,
             "frame_index": self.frame_count,
-            "pose_world": {"landmarks": world_lms},
-            "pose_image": {"width": w, "height": h, "landmarks": image_lms},
+            # "pose_world": {"landmarks": world_lms},
+            # "pose_image": {"width": w, "height": h, "landmarks": image_lms},
             "angles": {k: round(v, 1) if v is not None else None for k, v in (angles or {}).items()},
             "exercise_metrics": {
                 "rep_detected": False,

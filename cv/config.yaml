@@ -29,7 +29,7 @@ log_batch_size: 30
 log_update_interval_ms: 100
 
 # If true, compress log with gzip (reduces size ~5-10x). Use .jsonl.gz extension.
-log_use_gzip: true
+log_use_gzip: false
 
 # Skip landmarks with visibility below this in logged JSON (reduces size). 0.05 = drop very low confidence.
 log_min_visibility: 0.05

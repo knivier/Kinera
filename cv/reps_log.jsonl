@@ -1,0 +1,5 @@
+{"workout_id": "pushup", "timestamp_ms": 4197, "summary": {"min_angle": 45.582770849322046, "max_angle": 168.39005911361488, "duration": 3.04, "range_of_motion": 122.80728826429284, "num_frames": 59}}
+{"workout_id": "pushup", "timestamp_ms": 6760, "summary": {"min_angle": 75.83007927650951, "max_angle": 168.29564995266412, "duration": 2.509, "range_of_motion": 92.46557067615461, "num_frames": 47}}
+{"workout_id": "pushup", "timestamp_ms": 9379, "summary": {"min_angle": 77.13024258174235, "max_angle": 164.88445331439948, "duration": 2.57, "range_of_motion": 87.75421073265713, "num_frames": 50}}
+{"workout_id": "pushup", "timestamp_ms": 11761, "summary": {"min_angle": 74.22652023549097, "max_angle": 168.2040320015487, "duration": 2.308, "range_of_motion": 93.97751176605775, "num_frames": 46}}
+{"workout_id": "pushup", "timestamp_ms": 14519, "summary": {"min_angle": 57.59648868550532, "max_angle": 165.91121462889353, "duration": 2.698, "range_of_motion": 108.31472594338821, "num_frames": 46}}

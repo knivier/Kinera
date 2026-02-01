@@ -4,11 +4,12 @@ from pathlib import Path
 import numpy as np
 from scipy.signal import find_peaks
 from scipy.interpolate import UnivariateSpline
-from time import sleep
+import time
 
 # Rep detection parameters per workout (joints and angle thresholds).
+# Pushups: elbow at top (extended) ~150-180°, at bottom (bent) ~70-100°. We need top >= max, then bottom <= min, then top >= max again.
 WORKOUT_TO_PARAMETERS = {
-    "pushups": {"min_threshold": 120, "max_threshold": 145, "joints": ("left_elbow", "right_elbow")},
+    "pushups": {"min_threshold": 95, "max_threshold": 150, "joints": ("left_elbow", "right_elbow")},
     "squat": {"min_threshold": 80, "max_threshold": 170, "joints": ("left_knee", "right_knee")},
     "bicep_curl": {"min_threshold": 30, "max_threshold": 150, "joints": ("left_elbow", "right_elbow")},
 }
@@ -53,30 +54,41 @@ class SimpleRepDetector:
             if angle >= self.max_threshold:
                 self.state = self.DESCENDING
                 self.current_rep = [{"angle": angle, "timestamp": timestamp}]
+                _log_transition("DESCENDING", angle)
 
         elif self.state == self.DESCENDING:
             self.current_rep.append({"angle": angle, "timestamp": timestamp})
             if angle <= self.min_threshold:
                 self.state = self.BOTTOM_REACHED
+                _log_transition("BOTTOM_REACHED", angle)
 
         elif self.state == self.BOTTOM_REACHED:
             self.current_rep.append({"angle": angle, "timestamp": timestamp})
-            if increasing:
+            # Leave bottom: angle has risen above min (more robust than requiring frame-to-frame increase)
+            if angle > self.min_threshold:
                 self.state = self.ASCENDING
+                _log_transition("ASCENDING", angle)
 
         elif self.state == self.ASCENDING:
             self.current_rep.append({"angle": angle, "timestamp": timestamp})
-            if angle >= self.max_threshold:
+            # Complete rep when we reach top again (use slightly lower than max so we don't require full lockout)
+            completion_threshold = self.max_threshold - 5
+            if angle >= completion_threshold:
                 rep = self.current_rep
                 self.current_rep = []
                 self.state = self.DESCENDING  # allow next rep immediately
                 self.prev_angle = angle
+                _log_transition("REP_COMPLETE", angle)
                 return rep  # full rep collected
 
         self.prev_angle = angle
         return None
 
 rep_indexes = []
+
+def _log_transition(state_name, angle):
+    """Log state transition to stderr so we can see why reps might not complete."""
+    print(f"[Datahandler] state -> {state_name} (angle={angle:.1f}°)", file=sys.stderr, flush=True)
 
 def rep_summary(rep):
     angles = [p["angle"] for p in rep]
@@ -110,6 +122,10 @@ def to_fixed_length(points, target_len=50):
 def _workout_id_path():
     return Path(__file__).resolve().parent.parent / "workout_id.json"
 
+def _reps_log_path():
+    """Path for appending detected reps (JSONL) during live run."""
+    return Path(__file__).resolve().parent / "reps_log.jsonl"
+
 def _read_workout_state():
     """Read workout_id.json (JSONL: one line). Returns dict with workout_id, session."""
     p = _workout_id_path()
@@ -142,19 +158,38 @@ def workout_init():
 
 detector = None
 _last_workout_id = None
+_debug_last_print_time = [0.0]  # list so we can mutate in closure
 
 def run_workout(joint_angles, timestamp):
-    global reps, detector, _last_workout_id
+    global reps, detector, _last_workout_id, _debug_last_print_time
     data = _read_workout_state()
     wid = data.get("workout_id") or "pushups"
     if detector is None or _last_workout_id != wid:
         _last_workout_id = wid
         workout_init()
     rep = detector.feed(joint_angles, timestamp)
+    # Throttled debug: print current angle and state ~once per second so we can verify values
+    t = time.monotonic()
+    if t - _debug_last_print_time[0] >= 1.0:
+        _debug_last_print_time[0] = t
+        a = detector._get_angle(joint_angles)
+        state_name = ["WAITING_TOP", "DESCENDING", "BOTTOM_REACHED", "ASCENDING"][detector.state]
+        print(f"[Datahandler] elbow avg={a:.1f}° state={state_name} (min={detector.min_threshold}, max={detector.max_threshold})", file=sys.stderr, flush=True)
     if rep is not None:
         reps.append(rep)
         summary = rep_summary(rep)
         print(f"[Datahandler] Rep detected: {summary}", file=sys.stderr, flush=True)
+        # Log rep to disk (JSONL) so live runs persist reps
+        try:
+            entry = {
+                "workout_id": wid,
+                "timestamp_ms": timestamp,
+                "summary": summary,
+            }
+            with open(_reps_log_path(), "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
+        except OSError:
+            pass
         return summary
     return None
 readLines = 0
@@ -177,7 +212,7 @@ if __name__ == "__main__":
     while True:
         data = _read_workout_state()
         if data.get("session", "off").lower() != "on":
-            sleep(1)
+            time.sleep(1)
             continue
         store_reps()
-        sleep(1)
+        time.sleep(1)

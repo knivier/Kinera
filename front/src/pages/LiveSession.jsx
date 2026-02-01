@@ -5,7 +5,6 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopIcon from "@mui/icons-material/Stop";
 import FitnessCenterIcon from "@mui/icons-material/FitnessCenter";
 import TimerIcon from "@mui/icons-material/Timer";
-import AddIcon from "@mui/icons-material/Add";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import FeedbackIcon from "@mui/icons-material/Feedback";
 // Tauri APIs are loaded dynamically when starting the feed so a missing/failing API never blanks the page.
@@ -51,9 +50,13 @@ export default function LiveSession() {
   const CV_STREAM_URL = "http://127.0.0.1:8765/cv-stream";
   const isTauri = typeof window !== "undefined" && (window.__TAURI_INTERNALS__ != null || window.__TAURI__ != null);
 
-  // Current set: rep timestamps (CV or + Rep). Set boundary = first rep until "Stop current set".
-  const [repTimes, setRepTimes] = useState([]);
+  // Rep count and timestamps from CV backend (reps_log.jsonl). Current set = count - count at set start.
+  const [repCountFromBackend, setRepCountFromBackend] = useState(0);
+  const [repTimestampsFromBackend, setRepTimestampsFromBackend] = useState([]);
+  const [repCountAtSetStart, setRepCountAtSetStart] = useState(null);
   const setStartRef = useRef(null);
+  // Live metrics from cv/session_live.json (Depth, Knees, etc.) for display
+  const [liveMetrics, setLiveMetrics] = useState(null);
 
   // Last completed set metrics (displayed until next "Stop current set")
   const [lastSetMetrics, setLastSetMetrics] = useState(null);
@@ -77,12 +80,14 @@ export default function LiveSession() {
 
   // Reset set state when user selects a different workout
   useEffect(() => {
-    setRepTimes([]);
+    setRepCountFromBackend(0);
+    setRepCountAtSetStart(null);
     setLastSetMetrics(null);
     setCompletedSets([]);
     setFormIssuesDuringSet([]);
     setShowSummary(false);
     setBetweenSetsMode(false);
+    setLiveMetrics(null);
     setStartRef.current = null;
   }, [workoutId]);
 
@@ -159,10 +164,39 @@ export default function LiveSession() {
     };
   }, [isTauri, isRunning]);
 
-  /** Start Workout: camera + skeleton from cv.py (native in Tauri, stream in browser). End Workout: show summary. */
+  // Poll rep count from cv/reps_log.jsonl when running in Tauri; anchor set start on first poll
+  useEffect(() => {
+    if (!isTauri || !isRunning) return;
+    const interval = setInterval(() => {
+      import("@tauri-apps/api/core")
+        .then((m) => m.invoke("get_rep_count"))
+        .then((r) => {
+          setRepCountFromBackend(r.count);
+          setRepTimestampsFromBackend(r.rep_timestamps ?? []);
+          setRepCountAtSetStart((prev) => (prev === null ? r.count : prev));
+        })
+        .catch(() => {});
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isTauri, isRunning]);
+
+  // Poll live metrics (Depth, Knees, etc.) from cv/session_live.json when running in Tauri
+  useEffect(() => {
+    if (!isTauri || !isRunning) return;
+    const interval = setInterval(() => {
+      import("@tauri-apps/api/core")
+        .then((m) => m.invoke("get_live_metrics"))
+        .then((m) => setLiveMetrics(m || null))
+        .catch(() => {});
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isTauri, isRunning]);
+
+  /** Start Workout: camera + skeleton from cv.py (native in Tauri, stream in browser). End Workout: commit current set if any, then show summary. */
   function handleToggle() {
     if (isRunning) {
       setError(null);
+      if (currentSetReps > 0) commitCurrentSet();
       setIsRunning(false);
       setShowSummary(true);
       return;
@@ -175,16 +209,18 @@ export default function LiveSession() {
     setStartRef.current = null;
     setShowSummary(false);
     setBetweenSetsMode(false);
+    setRepCountAtSetStart(null); // first poll will anchor current set rep count
     setIsRunning(true);
   }
 
-  /** User starts next set after resting; CV will report reps for this set. */
+  /** User starts next set after resting; CV rep count continues from current total. */
   function startNextSet() {
     const now = Date.now();
     setBetweenSetsMode(false);
     setStartRef.current = now;
     setLastRestAt(now);
     setTimeSinceRest(0);
+    setRepCountAtSetStart(repCountFromBackend);
   }
 
   function handleRest() {
@@ -194,27 +230,28 @@ export default function LiveSession() {
     setTimeSinceRest(0);
   }
 
-  /** Single path for rep events: button click now; CV rep detection / ML confirmation later. */
-  function emitRepEvent() {
-    const now = Date.now();
-    if (setStartRef.current == null) setStartRef.current = now;
-    setRepTimes((t) => [...t, now]);
-  }
-
   /** CV calls this when bad form is detected; recorded per set and sent to backend on "Stop current set". */
   function recordFormIssue(issue) {
     setFormIssuesDuringSet((prev) => [...prev, issue]);
   }
 
-  /** User stops current set: backend computes metrics; timer switches to Rest. Later: POST to backend. */
-  function stopCurrentSet() {
+  /** Current set rep count from CV backend (total since session minus count at set start). */
+  const currentSetReps = repCountFromBackend - (repCountAtSetStart ?? repCountFromBackend);
+
+  /** Commit current set to completed sets (rep count + timestamps from backend for avg time). */
+  function commitCurrentSet() {
     const setEndTime = Date.now();
     const setStartTime = setStartRef.current ?? sessionStartRef.current ?? setEndTime;
+    // Use real rep timestamps from backend (session-relative ms) for avg time/rep; fallback to placeholder if none
+    const repTimes =
+      currentSetReps > 0 && repTimestampsFromBackend.length >= currentSetReps
+        ? repTimestampsFromBackend.slice(-currentSetReps)
+        : Array(currentSetReps).fill(setStartTime);
     const payload = {
       workoutId,
       setStartTime,
       setEndTime,
-      repTimes: [...repTimes],
+      repTimes,
       formIssues: [...formIssuesDuringSet],
     };
     const metrics = commitSetStub(payload);
@@ -223,9 +260,14 @@ export default function LiveSession() {
     setRestTimestamps((prev) => [...prev, setEndTime]);
     setLastRestAt(setEndTime);
     setTimeSinceRest(0);
-    setRepTimes([]);
+    setRepCountAtSetStart(repCountFromBackend);
     setFormIssuesDuringSet([]);
     setStartRef.current = null;
+  }
+
+  /** User stops current set: commit set, then switch to Rest. */
+  function stopCurrentSet() {
+    commitCurrentSet();
     setBetweenSetsMode(true);
   }
 
@@ -241,6 +283,22 @@ export default function LiveSession() {
   const cornerRadius = 6;
   const totalReps = completedSets.reduce((sum, s) => sum + s.reps, 0);
   const betweenSets = isRunning && betweenSetsMode;
+
+  /** Live extra line (Depth, Knees, etc.) from session_live.json or placeholder. */
+  const extraLine = (() => {
+    if (!workoutConfig?.extra) return "";
+    if (!liveMetrics) return workoutConfig.extra;
+    if (workoutId === "squat" && liveMetrics.depth != null) {
+      return `Depth: ${Math.round(liveMetrics.depth)}° · Knees: ${Math.round(liveMetrics.knees)}°`;
+    }
+    if ((workoutId === "pushup" || workoutId === "pushups") && liveMetrics.chest_touch != null) {
+      return `Chest touch: ${Math.round(liveMetrics.chest_touch)}° · Lockout: ${Math.round(liveMetrics.lockout)}°`;
+    }
+    if (workoutId === "bicep_curl" && liveMetrics.rom != null) {
+      return `ROM: ${Math.round(liveMetrics.rom)}° · Elbow drift: ${Math.round(liveMetrics.elbow_drift)}°`;
+    }
+    return workoutConfig.extra;
+  })();
 
   // Unknown workout id: show message instead of full UI to avoid blank or broken screen.
   if (workoutId && !workoutConfig) {
@@ -654,10 +712,10 @@ export default function LiveSession() {
                         Current Set
                       </Typography>
                       <Typography variant="h2" sx={{ fontWeight: 700, color: "#059669" }}>
-                        {repTimes.length}
+                        {currentSetReps}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        reps
+                        reps {isTauri ? "(from CV)" : ""}
                       </Typography>
                     </Box>
                   </Fade>
@@ -692,34 +750,8 @@ export default function LiveSession() {
                 )}
 
                 <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: "block", fontSize: "0.7rem" }}>
-                  {workoutConfig?.extra}
+                  {extraLine}
                 </Typography>
-
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  startIcon={<AddIcon />}
-                  onClick={emitRepEvent}
-                  disabled={!isRunning}
-                  sx={{
-                    py: 1.2,
-                    borderRadius: 2,
-                    borderColor: "#e5e7eb",
-                    textTransform: "none",
-                    fontWeight: 600,
-                    fontSize: "0.9rem",
-                    "&:hover": {
-                      borderColor: "#9ca3af",
-                      background: "#f9fafb",
-                    },
-                    "&:disabled": {
-                      borderColor: "#e5e7eb",
-                      color: "#9ca3af",
-                    },
-                  }}
-                >
-                  Add Rep
-                </Button>
               </Paper>
             </Grow>
 
@@ -926,7 +958,7 @@ export default function LiveSession() {
             variant="outlined"
             size="large"
             onClick={stopCurrentSet}
-            disabled={!isRunning || repTimes.length === 0}
+            disabled={!isRunning}
             sx={{
               px: 3.5,
               py: 1.2,

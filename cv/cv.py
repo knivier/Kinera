@@ -180,20 +180,54 @@ drawing_utils = mp.tasks.vision.drawing_utils
 
 
 # ------------------ Helpers ------------------
-def _session_is_on():
-    """True if workout_id.json (repo root) has session == 'on' (JSONL format)."""
+def _get_workout_state():
+    """Read workout_id.json (repo root). Returns dict with workout_id, session."""
     path = _CV_DIR.parent / "workout_id.json"
     if not path.exists():
-        return False
+        return {"workout_id": "pushups", "session": "off"}
     try:
         with open(path, "r", encoding="utf-8") as f:
             line = f.readline()
             if not line.strip():
-                return False
+                return {"workout_id": "pushups", "session": "off"}
             data = json.loads(line)
-            return (data.get("session") or "").lower() == "on"
+            return {"workout_id": (data.get("workout_id") or "pushups"), "session": (data.get("session") or "off").lower()}
     except (json.JSONDecodeError, OSError):
-        return False
+        return {"workout_id": "pushups", "session": "off"}
+
+
+def _session_is_on():
+    """True if workout_id.json (repo root) has session == 'on' (JSONL format)."""
+    return _get_workout_state().get("session") == "on"
+
+
+def _write_session_live(workout_id, angles):
+    """Write cv/session_live.json for GUI: display metrics (depth, knees, etc.) per workout type."""
+    out = {"workout_id": workout_id, "angles": {k: round(v, 1) if v is not None else None for k, v in angles.items()}}
+    if workout_id == "squat":
+        lk, rk = angles.get("left_knee"), angles.get("right_knee")
+        avg = (lk + rk) / 2.0 if lk is not None and rk is not None else (lk if lk is not None else rk)
+        if avg is not None:
+            out["depth"] = round(avg, 1)
+            out["knees"] = round(avg, 1)
+    elif workout_id in ("pushup", "pushups"):
+        le, re = angles.get("left_elbow"), angles.get("right_elbow")
+        avg = (le + re) / 2.0 if le is not None and re is not None else (le if le is not None else re)
+        if avg is not None:
+            out["chest_touch"] = round(avg, 1)
+            out["lockout"] = round(avg, 1)
+    elif workout_id == "bicep_curl":
+        le, re = angles.get("left_elbow"), angles.get("right_elbow")
+        avg = (le + re) / 2.0 if le is not None and re is not None else (le if le is not None else re)
+        if avg is not None:
+            out["rom"] = round(avg, 1)
+            out["elbow_drift"] = round(avg, 1)
+    live_path = _CV_DIR / "session_live.json"
+    try:
+        with open(live_path, "w", encoding="utf-8") as f:
+            json.dump(out, f)
+    except OSError:
+        pass
 
 
 _datahandler_module = None
@@ -1088,8 +1122,11 @@ class PoseCore:
             if len(self.log_buffer) >= self.log_batch_size:
                 self.flush_log_buffer()
 
-            # Datahandler (rep detection): run when session is "on" in workout_id.json
+            # Datahandler (rep detection) + live metrics file for GUI when session is "on"
             if angles and _session_is_on():
+                state = _get_workout_state()
+                wid = state.get("workout_id") or "pushups"
+                _write_session_live(wid, angles)
                 dh = _get_datahandler()
                 if dh is not None:
                     try:

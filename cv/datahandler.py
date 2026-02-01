@@ -13,7 +13,7 @@ import torch.nn as nn
 TOLERANCE_DEGREES = 8
 WORKOUT_TO_PARAMETERS = {
     "pushups": {"min_threshold": 100, "max_threshold": 150, "joints": ("left_elbow", "right_elbow"), "target_min_angle": 90},
-    "squat": {"min_threshold": 80, "max_threshold": 170, "joints": ("left_knee", "right_knee")},
+    "squat": {"min_threshold": 80, "max_threshold": 150, "joints": ("left_knee", "right_knee")},
     "bicep_curl": {"min_threshold": 30, "max_threshold": 150, "joints": ("left_elbow", "right_elbow")},
 }
 class SimpleRepDetector:
@@ -110,22 +110,28 @@ def to_fixed_length_nd(points, target_len=50):
         out[:, d] = np.interp(x_new, x_old, points[:, d])
 
     return out
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_CROUCH_MODEL_PATH = _REPO_ROOT / "quantprocess" / "crouch_model.pth"
+
 model = nn.Sequential(
     nn.Linear(50, 50),
     nn.ReLU(),
     nn.Linear(50, 1)
 )
-
-model.load_state_dict(torch.load(BASE_DIR / "crouch_model.pth"))
+if _CROUCH_MODEL_PATH.exists():
+    model.load_state_dict(torch.load(_CROUCH_MODEL_PATH, map_location="cpu"))
+else:
+    print(f"[Datahandler] quality model not found at {_CROUCH_MODEL_PATH}, rep_quality will be untrained", file=sys.stderr, flush=True)
 model.eval()
 def rep_summary(rep):
     global model
-    angles = [p["angle"] for p in rep]  
+    angles = [p["angle"] for p in rep]
     times = [p["timestamp"] for p in rep]
 
-    points = to_fixed_length_nd(angles, target_len=50)
-    points_norm = (points - np.min(points)) / \
-                       (np.max(points) - np.min(points))
+    # Resample angle series to 50 points (1D); model expects (batch, 50)
+    points_1d = to_fixed_length(angles, target_len=50)
+    pt_min, pt_max = np.min(points_1d), np.max(points_1d)
+    points_norm = (points_1d - pt_min) / (pt_max - pt_min) if pt_max > pt_min else np.zeros_like(points_1d)
     rep_quality = model(torch.tensor(points_norm, dtype=torch.float32).unsqueeze(0)).item()
     min_angle = min(angles)
     max_angle = max(angles)
@@ -208,7 +214,8 @@ def run_workout(joint_angles, timestamp):
         _debug_last_print_time[0] = t
         a = detector._get_angle(joint_angles)
         state_name = ["WAITING_TOP", "DESCENDING", "BOTTOM_REACHED", "ASCENDING"][detector.state]
-        print(f"[Datahandler] elbow avg={a:.1f}° state={state_name} (min={detector.min_threshold}, max={detector.max_threshold})", file=sys.stderr, flush=True)
+        joint_label = detector.joints[0].split("_")[-1]  # elbow, knee, etc.
+        print(f"[Datahandler] {joint_label} avg={a:.1f}° state={state_name} (min={detector.min_threshold}, max={detector.max_threshold})", file=sys.stderr, flush=True)
     if rep is not None:
         reps.append(rep)
         summary = rep_summary(rep)

@@ -63,7 +63,7 @@ model = nn.Sequential(
     nn.Linear(50, 1)
 )
 
-model.load_state_dict(torch.load("crouch_model.pth"))
+model.load_state_dict(torch.load("./lms/crouch_model.pth"))
 model.eval()
 
 for i in range(len(peaks)-1):

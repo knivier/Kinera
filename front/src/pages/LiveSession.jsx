@@ -8,6 +8,7 @@ import TimerIcon from "@mui/icons-material/Timer";
 import AddIcon from "@mui/icons-material/Add";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import FeedbackIcon from "@mui/icons-material/Feedback";
+// Tauri APIs are loaded dynamically when starting the feed so a missing/failing API never blanks the page.
 
 // Metrics config per workout (title + exercise-specific metric placeholders)
 const WORKOUT_METRICS = {
@@ -39,9 +40,16 @@ export default function LiveSession() {
   const workoutId = location.state?.workoutId ?? null;
 
   const [isRunning, setIsRunning] = useState(false);
-  const [stream, setStream] = useState(null);
   const [error, setError] = useState(null);
-  const videoRef = useRef(null);
+  const [cvStreamError, setCvStreamError] = useState(false);
+  // Native feed (Tauri): cv.py frames from IPC. Fallback: stream URL when running in browser.
+  const [cvFrame, setCvFrame] = useState(null);
+  const unlistenCvFrameRef = useRef(null);
+  const latestCvFrameRef = useRef(null);
+  const cvFrameRafRef = useRef(null);
+
+  const CV_STREAM_URL = "http://127.0.0.1:8765/cv-stream";
+  const isTauri = typeof window !== "undefined" && (window.__TAURI_INTERNALS__ != null || window.__TAURI__ != null);
 
   // Current set: rep timestamps (CV or + Rep). Set boundary = first rep until "Stop current set".
   const [repTimes, setRepTimes] = useState([]);
@@ -78,20 +86,19 @@ export default function LiveSession() {
     setStartRef.current = null;
   }, [workoutId]);
 
+  // Persist workout_id.json (Tauri only): line 1 = workout id, line 2 = ON (set in progress) or OFF (rest / ended).
+  const sessionOn = isRunning && !betweenSetsMode;
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
-      videoRef.current.play().catch(() => {});
-    }
-  }, [stream]);
-
-  useEffect(() => {
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
-      }
-    };
-  }, [stream]);
+    if (typeof window === "undefined" || (window.__TAURI_INTERNALS__ == null && window.__TAURI__ == null)) return;
+    import("@tauri-apps/api/core")
+      .then((m) =>
+        m.invoke("write_workout_id", {
+          workoutId: workoutId ?? "",
+          session: sessionOn ? "ON" : "OFF",
+        })
+      )
+      .catch(() => {});
+  }, [workoutId, sessionOn]);
 
   // Time since last rest (updates every second when running)
   useEffect(() => {
@@ -106,34 +113,69 @@ export default function LiveSession() {
     return () => clearInterval(interval);
   }, [isRunning, lastRestAt]);
 
-  /** Start Workout: system initializes, camera on; CV reports reps. End Workout: stop camera and show summary. */
-  async function handleToggle() {
-    if (isRunning) {
-      if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
-        setStream(null);
+  // Native feed (Tauri): start cv.py pipeline and listen for frames; stop and unlisten on end.
+  // Store latest frame in a ref and paint at rAF rate so we always show the newest frame (reduces lag from backlog).
+  useEffect(() => {
+    if (!isTauri || !isRunning) return;
+    setCvFrame(null);
+    latestCvFrameRef.current = null;
+    setCvStreamError(false);
+    let unlisten = null;
+    let rafActive = true;
+    const paintLatest = () => {
+      if (!rafActive) return;
+      const latest = latestCvFrameRef.current;
+      if (latest != null) setCvFrame(latest);
+      cvFrameRafRef.current = requestAnimationFrame(paintLatest);
+    };
+    cvFrameRafRef.current = requestAnimationFrame(paintLatest);
+    Promise.all([
+      import("@tauri-apps/api/core").then((m) => m.invoke("start_cv_feed")),
+      import("@tauri-apps/api/event").then((m) =>
+        m.listen("cv-frame", (ev) => {
+          const b64 = ev.payload;
+          if (typeof b64 === "string") latestCvFrameRef.current = `data:image/jpeg;base64,${b64}`;
+        })
+      ),
+    ])
+      .then(([, unlistenFn]) => {
+        unlisten = unlistenFn;
+        unlistenCvFrameRef.current = unlistenFn;
+      })
+      .catch((e) => {
+        setCvStreamError(true);
+        setError(String(e));
+      });
+    return () => {
+      rafActive = false;
+      if (cvFrameRafRef.current != null) cancelAnimationFrame(cvFrameRafRef.current);
+      import("@tauri-apps/api/core").then((m) => m.invoke("stop_cv_feed")).catch(() => {});
+      if (unlistenCvFrameRef.current) {
+        unlistenCvFrameRef.current();
+        unlistenCvFrameRef.current = null;
       }
+      latestCvFrameRef.current = null;
+      setCvFrame(null);
+    };
+  }, [isTauri, isRunning]);
+
+  /** Start Workout: camera + skeleton from cv.py (native in Tauri, stream in browser). End Workout: show summary. */
+  function handleToggle() {
+    if (isRunning) {
       setError(null);
       setIsRunning(false);
       setShowSummary(true);
       return;
     }
     setError(null);
+    setCvStreamError(false);
     sessionStartRef.current = Date.now();
     setLastRestAt(null);
     setTimeSinceRest(0);
     setStartRef.current = null;
     setShowSummary(false);
     setBetweenSetsMode(false);
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1200, height: 768 },
-      });
-      setStream(mediaStream);
-      setIsRunning(true);
-    } catch (e) {
-      setError(e.message || "Could not access camera");
-    }
+    setIsRunning(true);
   }
 
   /** User starts next set after resting; CV will report reps for this set. */
@@ -199,6 +241,23 @@ export default function LiveSession() {
   const cornerRadius = 6;
   const totalReps = completedSets.reduce((sum, s) => sum + s.reps, 0);
   const betweenSets = isRunning && betweenSetsMode;
+
+  // Unknown workout id: show message instead of full UI to avoid blank or broken screen.
+  if (workoutId && !workoutConfig) {
+    return (
+      <Box sx={{ maxWidth: 1400, mx: "auto" }}>
+        <Grow in timeout={400}>
+          <Paper elevation={0} sx={{ p: 6, borderRadius: 4, textAlign: "center", background: "#ffffff", border: "1px solid #e5e7eb" }}>
+            <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>Unknown workout</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>"{workoutId}" is not configured.</Typography>
+            <Button variant="contained" size="large" onClick={() => navigate("/")} sx={{ px: 4, py: 1.5, borderRadius: 2, textTransform: "none", fontSize: "1rem", fontWeight: 600 }}>
+              Choose Workout
+            </Button>
+          </Paper>
+        </Grow>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ maxWidth: 1400, mx: "auto" }}>
@@ -414,22 +473,79 @@ export default function LiveSession() {
             border: "1px solid #2d2d2d",
           }}
         >
-          {stream && (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
+          {isRunning && isTauri && cvFrame && (
+            <img
+              key="cv-native"
+              src={cvFrame}
+              alt="Camera with skeleton overlay (cv.py)"
               style={{
                 position: "absolute",
                 inset: 0,
                 width: "100%",
                 height: "100%",
-                objectFit: "cover",
+                objectFit: "contain",
               }}
             />
           )}
-          {!stream && (
+          {isRunning && isTauri && !cvFrame && !cvStreamError && (
+            <Box sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#1a1a1a" }}>
+              <Typography sx={{ color: "#9ca3af" }}>Starting cv.py…</Typography>
+            </Box>
+          )}
+          {isRunning && isTauri && cvStreamError && (
+            <Box
+              sx={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 2,
+                p: 2,
+                background: "#1a1a1a",
+              }}
+            >
+              <Typography sx={{ color: "#fbbf24", fontSize: "0.875rem", textAlign: "center" }}>
+                cv.py failed to start. Check Python and cv/config.yaml (camera_id). Run from repo: npm run tauri dev.
+              </Typography>
+            </Box>
+          )}
+          {isRunning && !isTauri && !cvStreamError && (
+            <img
+              key="cv-stream"
+              src={CV_STREAM_URL}
+              alt="Camera with skeleton overlay (cv.py stream)"
+              onError={() => setCvStreamError(true)}
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+              }}
+            />
+          )}
+          {isRunning && !isTauri && cvStreamError && (
+            <Box
+              sx={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 2,
+                p: 2,
+                background: "#1a1a1a",
+              }}
+            >
+              <Typography sx={{ color: "#fbbf24", fontSize: "0.875rem", textAlign: "center" }}>
+                Camera and skeleton use cv.py only. Run: python cv/cv_stream_server.py (camera from cv/config.yaml).
+              </Typography>
+            </Box>
+          )}
+          {!isRunning && (
             <>
               <Box
                 sx={{
@@ -452,18 +568,21 @@ export default function LiveSession() {
                 }}
               >
                 <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  {error ? error : "Camera Feed"}
+                  {error ? error : "Camera + skeleton (cv.py)"}
                 </Typography>
-                <Typography variant="body2">Skeleton overlay will appear here</Typography>
+                <Typography variant="body2">Start workout to see feed from cv.py. Run: python cv/cv_stream_server.py</Typography>
               </Box>
             </>
           )}
           <Box sx={{ position: "absolute", left: 20, top: 20 }}>
             <Chip
-              icon={stream ? <CheckCircleIcon /> : undefined}
-              label={stream ? "Live" : "Camera Off"}
+              icon={isRunning && !cvStreamError && (isTauri ? cvFrame : true) ? <CheckCircleIcon /> : undefined}
+              label={
+                !isRunning ? "Camera Off" :
+                cvStreamError ? "CV unavailable" : isTauri ? "Live (cv.py native)" : "Live (cv.py)"
+              }
               sx={{
-                background: stream 
+                background: isRunning && !cvStreamError
                   ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
                   : "#374151",
                 color: "#ffffff",

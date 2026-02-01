@@ -11,10 +11,11 @@ import torch.nn as nn
 # Rep detection parameters per workout (joints and angle thresholds).
 # Pushups: elbow at top (extended) ~150-180°, at bottom (bent) ~70-100°. We need top >= max, then bottom <= min, then top >= max again.
 TOLERANCE_DEGREES = 8
+TOLERANCE_TIME = 0.8
 WORKOUT_TO_PARAMETERS = {
-    "pushups": {"min_threshold": 100, "max_threshold": 150, "joints": ("left_elbow", "right_elbow"), "target_min_angle": 90},
-    "squat": {"min_threshold": 80, "max_threshold": 170, "joints": ("left_knee", "right_knee")},
-    "bicep_curl": {"min_threshold": 30, "max_threshold": 150, "joints": ("left_elbow", "right_elbow")},
+    "pushups": {"min_threshold": 100, "max_threshold": 150, "joints": ("left_elbow", "right_elbow"), "target_min_angle": 90, "target_max_angle": 160, "target_duration": 1.5},
+    "squat": {"min_threshold": 80, "max_threshold": 140, "joints": ("left_knee", "right_knee"), "target_min_angle": 70, "target_max_angle": 150, "target_duration": 2.0},
+    "bicep_curl": {"min_threshold": 30, "max_threshold": 150, "joints": ("left_elbow", "right_elbow"), "target_min_angle": 20, "target_max_angle": 160, "target_duration": 1},
 }
 class SimpleRepDetector:
     WAITING_TOP = 0
@@ -131,7 +132,31 @@ def rep_summary(rep):
     max_angle = max(angles)
     duration = (times[-1] - times[0]) / 1000.0  # seconds
     range_of_motion = max_angle - min_angle
-
+    msg =""
+    if WORKOUT_TO_PARAMETERS.get(workout_type):
+        params = WORKOUT_TO_PARAMETERS[workout_type]
+        target_min = params.get("target_min_angle", 0)
+        target_max = params.get("target_max_angle", 180)
+        if abs(min_angle - target_min) < TOLERANCE_DEGREES:
+            msg += "Good depth.\n"
+        elif min_angle < target_min - TOLERANCE_DEGREES:
+            msg += "TOO FAR.\n"
+        else:
+            msg += "Not low enough.\n"
+        if abs(max_angle - target_max) < TOLERANCE_DEGREES:
+            msg += "Good extension.\n"
+        elif max_angle < target_max - TOLERANCE_DEGREES:
+            msg += "Not fully extended.\n"
+        else:
+            msg += "Overextended.\n"
+        target_duration = params.get("target_duration", 1.0)
+        if abs(duration - target_duration) < TOLERANCE_TIME:
+            msg += " Good tempo.\n"
+        elif duration < target_duration - TOLERANCE_TIME:
+            msg += " Too fast.\n"
+        else:
+            msg += " Too slow.\n"
+        
     return {
         "min_angle": min_angle,
         "max_angle": max_angle,
@@ -139,6 +164,7 @@ def rep_summary(rep):
         "range_of_motion": range_of_motion,
         "num_frames": len(rep),
         "quality_score": rep_quality,
+        "feedback": msg.strip(),
     }
 
 reps = []

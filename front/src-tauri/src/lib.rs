@@ -38,7 +38,7 @@ fn cv_stdout_frames_path() -> Result<std::path::PathBuf, String> {
 fn start_cv_feed(app: tauri::AppHandle, state: tauri::State<'_, SessionState>) -> Result<(), String> {
     // Don't start twice
     {
-        let mut guard = state.cv_child.lock().map_err(|e| e.to_string())?;
+        let guard = state.cv_child.lock().map_err(|e| e.to_string())?;
         if guard.is_some() {
             return Ok(());
         }
@@ -99,7 +99,7 @@ fn start_cv_feed(app: tauri::AppHandle, state: tauri::State<'_, SessionState>) -
                 if parts.is_empty() {
                     continue;
                 }
-                let mut c = Command::new(parts[0])
+                let c = Command::new(parts[0])
                     .args(parts.iter().skip(1))
                     .current_dir(&root)
                     .stdout(Stdio::null())
@@ -148,6 +148,69 @@ fn write_workout_id(workout_id: String, session: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Rep count, last summary, and rep timestamps (session-relative ms) from cv/reps_log.jsonl.
+#[tauri::command]
+fn get_rep_count() -> Result<RepCountResult, String> {
+    let root = repo_root()?;
+    let path = root.join("cv/reps_log.jsonl");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => {
+            return Ok(RepCountResult {
+                count: 0,
+                last_summary: None,
+                rep_timestamps: vec![],
+            });
+        }
+    };
+    let lines: Vec<&str> = content.lines().filter(|s| !s.is_empty()).collect();
+    let count = lines.len() as u32;
+    let mut rep_timestamps: Vec<u64> = Vec::with_capacity(lines.len());
+    for line in &lines {
+        if let Ok(entry) = serde_json::from_str::<RepLogEntry>(line) {
+            if let Some(ts) = entry.timestamp_ms {
+                rep_timestamps.push(ts);
+            }
+        }
+    }
+    let last_summary = lines.last().and_then(|line| {
+        serde_json::from_str::<RepLogEntry>(line)
+            .ok()
+            .and_then(|e| e.summary)
+    });
+    Ok(RepCountResult {
+        count,
+        last_summary,
+        rep_timestamps,
+    })
+}
+
+#[derive(serde::Serialize)]
+struct RepCountResult {
+    count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_summary: Option<serde_json::Value>,
+    rep_timestamps: Vec<u64>,
+}
+
+#[derive(serde::Deserialize)]
+struct RepLogEntry {
+    timestamp_ms: Option<u64>,
+    summary: Option<serde_json::Value>,
+}
+
+/// Live metrics (e.g. Depth, Knees for squat) from cv/session_live.json (written by cv.py when session on).
+#[tauri::command]
+fn get_live_metrics() -> Result<Option<serde_json::Value>, String> {
+    let root = repo_root()?;
+    let path = root.join("cv/session_live.json");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Ok(None),
+    };
+    serde_json::from_str(&content).map(Some).or(Ok(None))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -161,6 +224,8 @@ pub fn run() {
             start_cv_feed,
             stop_cv_feed,
             write_workout_id,
+            get_rep_count,
+            get_live_metrics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

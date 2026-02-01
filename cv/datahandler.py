@@ -5,7 +5,6 @@ from scipy.interpolate import UnivariateSpline
 from matplotlib import pyplot as plt
 import torch
 import torch.nn as nn
-from RepTracker import SimpleRepDetector
 from time import sleep
 
 WORKOUT_TO_PARAMETERS = {"pushups": {"min_threshold": 120, "max_threshold": 145, "joints": ("left_elbow", "right_elbow")}}
@@ -144,12 +143,12 @@ def store_reps():
     with open("reps_summary.json", "w") as f:
         json.dump([rep_summary(rep) for rep in reps], f, indent=4)
 while True:
-    
+    print("Checking workout_id.json...")
     with open("workout_id.jsonl", "r") as f:
         data = json.load(f)
         if data.get("workout_id", "pushups") == "OFF":
             print("Hey, workout is OFF. Sleeping...")
-            sleep(100)
+            sleep(0.1)
         else:
             print("Workout is ON. Processing...")
             store_reps()

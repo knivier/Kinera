@@ -124,7 +124,7 @@ if _CROUCH_MODEL_PATH.exists():
 else:
     print(f"[Datahandler] quality model not found at {_CROUCH_MODEL_PATH}, rep_quality will be untrained", file=sys.stderr, flush=True)
 model.eval()
-def rep_summary(rep):
+def rep_summary(rep, workout_type="pushups"):
     global model
     angles = [p["angle"] for p in rep]
     times = [p["timestamp"] for p in rep]
@@ -243,7 +243,7 @@ def run_workout(joint_angles, timestamp):
         print(f"[Datahandler] {joint_label} avg={a:.1f}° state={state_name} (min={detector.min_threshold}, max={detector.max_threshold})", file=sys.stderr, flush=True)
     if rep is not None:
         reps.append(rep)
-        summary = rep_summary(rep)
+        summary = rep_summary(rep, workout_type=wid)
         print(f"[Datahandler] Rep detected: {summary}", file=sys.stderr, flush=True)
         # Log rep to disk (JSONL) so live runs persist reps
         try:

@@ -14,8 +14,8 @@ TOLERANCE_DEGREES = 8
 TOLERANCE_TIME = 0.8
 WORKOUT_TO_PARAMETERS = {
     "pushups": {"min_threshold": 100, "max_threshold": 150, "joints": ("left_elbow", "right_elbow"), "target_min_angle": 90, "target_max_angle": 160, "target_duration": 1.5},
-    "squat": {"min_threshold": 80, "max_threshold": 150, "joints": ("left_knee", "right_knee"), "target_min_angle": 70, "target_max_angle": 150, "target_duration": 2.0},
-    "bicep_curl": {"min_threshold": 30, "max_threshold": 150, "joints": ("left_elbow", "right_elbow"), "target_min_angle": 20, "target_max_angle": 160, "target_duration": 1},
+    "squat": {"min_threshold": 90, "max_threshold": 150, "joints": ("left_knee", "right_knee"), "target_min_angle": 70, "target_max_angle": 150, "target_duration": 2.0},
+    "bicep_curl": {"min_threshold": 40, "max_threshold": 150, "joints": ("left_elbow", "right_elbow"), "target_min_angle": 20, "target_max_angle": 160, "target_duration": 1},
 }
 class SimpleRepDetector:
     WAITING_TOP = 0
